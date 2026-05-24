@@ -2,6 +2,8 @@
 
 Open sidecar strategy plugins for QuantStrategyLab runtimes.
 
+Documentation: English | [简体中文](README.zh-CN.md)
+
 The repository emits JSON signal artifacts that are consumed through
 `quant_platform_kit.common.strategy_plugins`. Platform repositories such as
 Interactive Brokers, Schwab, LongBridge, and Firstrade only load artifacts and
@@ -55,3 +57,7 @@ python -m pip install -e '.[test]'
 python -m pytest -q
 ruff check .
 ```
+
+## License
+
+MIT License. Copyright (c) 2026 QuantStrategyLab.

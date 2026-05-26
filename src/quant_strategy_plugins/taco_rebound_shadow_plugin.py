@@ -40,6 +40,12 @@ DEFAULT_OUTPUT_DIR = "data/output/taco_rebound_shadow"
 DEFAULT_START_DATE = "2018-01-01"
 DEFAULT_MAX_PRICE_AGE_DAYS = 4
 DEFAULT_ACTIVE_SIGNAL_DAYS = 10
+DEFAULT_REQUIRE_REBOUND_CONFIRMATION = True
+DEFAULT_CONFIRMATION_LOOKBACK_DAYS = 5
+DEFAULT_MIN_CONFIRMATION_TRADING_DAYS_AFTER_EVENT = 1
+DEFAULT_MIN_BENCHMARK_REBOUND_FROM_LOW = 0.015
+DEFAULT_MIN_ATTACK_REBOUND_FROM_LOW = 0.04
+DEFAULT_MIN_BENCHMARK_3D_RETURN = 0.0
 HARD_DEFENSE_BREAK_BEAR_REGIONS = frozenset({"iran_middle_east"})
 
 
@@ -80,6 +86,92 @@ def _active_recognized_events(
     return tuple(active)
 
 
+def _trading_day_distance(
+    index: pd.DatetimeIndex,
+    *,
+    start_date: pd.Timestamp | None,
+    end_date: pd.Timestamp,
+) -> int | None:
+    if start_date is None:
+        return None
+    try:
+        start_pos = int(index.get_loc(pd.Timestamp(start_date).normalize()))
+        end_pos = int(index.get_loc(pd.Timestamp(end_date).normalize()))
+    except KeyError:
+        return None
+    return max(0, end_pos - start_pos)
+
+
+def _build_rebound_confirmation(
+    close: pd.DataFrame,
+    *,
+    signal_date: pd.Timestamp,
+    selected_event_signal_date: pd.Timestamp | None,
+    benchmark_symbol: str,
+    attack_symbol: str,
+    lookback_days: int,
+    min_trading_days_after_event: int,
+    min_benchmark_rebound_from_low: float,
+    min_attack_rebound_from_low: float,
+    min_benchmark_3d_return: float,
+) -> dict[str, Any]:
+    index = pd.DatetimeIndex(close.index).sort_values()
+    trading_days_after_event = _trading_day_distance(
+        index,
+        start_date=selected_event_signal_date,
+        end_date=signal_date,
+    )
+    if signal_date not in index:
+        return {
+            "confirmed": False,
+            "reason": "signal date missing from price index",
+            "trading_days_after_event": trading_days_after_event,
+        }
+
+    signal_pos = int(index.get_loc(signal_date))
+    lookback_start = max(0, signal_pos - max(1, int(lookback_days)) + 1)
+    window_index = index[lookback_start : signal_pos + 1]
+    benchmark = pd.to_numeric(close[benchmark_symbol].reindex(window_index), errors="coerce")
+    attack = pd.to_numeric(close[attack_symbol].reindex(window_index), errors="coerce")
+    benchmark_close = float(benchmark.iloc[-1]) if benchmark.notna().any() else float("nan")
+    attack_close = float(attack.iloc[-1]) if attack.notna().any() else float("nan")
+    benchmark_low = float(benchmark.min()) if benchmark.notna().any() else float("nan")
+    attack_low = float(attack.min()) if attack.notna().any() else float("nan")
+    benchmark_rebound_from_low = benchmark_close / benchmark_low - 1.0 if benchmark_low > 0 else float("nan")
+    attack_rebound_from_low = attack_close / attack_low - 1.0 if attack_low > 0 else float("nan")
+    if signal_pos >= 3:
+        benchmark_3d_base = float(close[benchmark_symbol].iloc[signal_pos - 3])
+        benchmark_3d_return = benchmark_close / benchmark_3d_base - 1.0 if benchmark_3d_base > 0 else float("nan")
+    else:
+        benchmark_3d_return = float("nan")
+
+    reasons: list[str] = []
+    if trading_days_after_event is None or trading_days_after_event < int(min_trading_days_after_event):
+        reasons.append("waiting for post-event trading confirmation")
+    if pd.isna(benchmark_rebound_from_low) or benchmark_rebound_from_low < float(min_benchmark_rebound_from_low):
+        reasons.append("benchmark rebound from recent low below threshold")
+    if pd.isna(attack_rebound_from_low) or attack_rebound_from_low < float(min_attack_rebound_from_low):
+        reasons.append("attack rebound from recent low below threshold")
+    if pd.isna(benchmark_3d_return) or benchmark_3d_return < float(min_benchmark_3d_return):
+        reasons.append("benchmark 3d return below threshold")
+
+    return {
+        "confirmed": not reasons,
+        "reason": "; ".join(reasons),
+        "lookback_days": int(lookback_days),
+        "trading_days_after_event": trading_days_after_event,
+        "min_trading_days_after_event": int(min_trading_days_after_event),
+        "benchmark_symbol": benchmark_symbol,
+        "attack_symbol": attack_symbol,
+        "benchmark_rebound_from_recent_low": benchmark_rebound_from_low,
+        "attack_rebound_from_recent_low": attack_rebound_from_low,
+        "benchmark_3d_return": benchmark_3d_return,
+        "min_benchmark_rebound_from_low": float(min_benchmark_rebound_from_low),
+        "min_attack_rebound_from_low": float(min_attack_rebound_from_low),
+        "min_benchmark_3d_return": float(min_benchmark_3d_return),
+    }
+
+
 def build_taco_rebound_shadow_signal(
     price_history,
     *,
@@ -95,6 +187,12 @@ def build_taco_rebound_shadow_signal(
     crisis_guard_ma_days: int = DEFAULT_PRICE_CRISIS_GUARD_MA_DAYS,
     crisis_guard_ma_slope_days: int = DEFAULT_PRICE_CRISIS_GUARD_MA_SLOPE_DAYS,
     max_price_age_days: int = DEFAULT_MAX_PRICE_AGE_DAYS,
+    require_rebound_confirmation: bool = DEFAULT_REQUIRE_REBOUND_CONFIRMATION,
+    confirmation_lookback_days: int = DEFAULT_CONFIRMATION_LOOKBACK_DAYS,
+    min_confirmation_trading_days_after_event: int = DEFAULT_MIN_CONFIRMATION_TRADING_DAYS_AFTER_EVENT,
+    min_benchmark_rebound_from_low: float = DEFAULT_MIN_BENCHMARK_REBOUND_FROM_LOW,
+    min_attack_rebound_from_low: float = DEFAULT_MIN_ATTACK_REBOUND_FROM_LOW,
+    min_benchmark_3d_return: float = DEFAULT_MIN_BENCHMARK_3D_RETURN,
 ) -> dict[str, Any]:
     close = normalize_close(price_history)
     benchmark_symbol = str(benchmark_symbol).strip().upper()
@@ -155,35 +253,66 @@ def build_taco_rebound_shadow_signal(
             selected_event = event
             selected_event_signal_date = event_signal_date
 
-    rebound_context_active = bool(
+    event_context_active = bool(
         selected_event is not None and selected_event.kind == EVENT_KIND_SOFTENING and not crisis_guard_active
     )
+    rebound_confirmation = (
+        _build_rebound_confirmation(
+            close,
+            signal_date=signal_date,
+            selected_event_signal_date=selected_event_signal_date,
+            benchmark_symbol=benchmark_symbol,
+            attack_symbol=attack_symbol,
+            lookback_days=int(confirmation_lookback_days),
+            min_trading_days_after_event=int(min_confirmation_trading_days_after_event),
+            min_benchmark_rebound_from_low=float(min_benchmark_rebound_from_low),
+            min_attack_rebound_from_low=float(min_attack_rebound_from_low),
+            min_benchmark_3d_return=float(min_benchmark_3d_return),
+        )
+        if event_context_active
+        else {"confirmed": False, "reason": "no active softening/de-escalation event context"}
+    )
+    rebound_confirmed = bool(rebound_confirmation.get("confirmed")) or not bool(require_rebound_confirmation)
+    rebound_context_active = bool(event_context_active and rebound_confirmed)
     manual_review_required = rebound_context_active
     canonical_route = ROUTE_TACO_REBOUND if manual_review_required else "no_action"
     suggested_action = ACTION_NOTIFY_MANUAL_REVIEW if manual_review_required else ACTION_NO_ACTION
     would_trade_if_enabled = False
     event_rebound_break_bear = bool(manual_review_required and _event_allows_hard_defense(selected_event))
     suppression_reason = ""
-    notification_reason = "event rebound context active" if manual_review_required else ""
+    notification_reason = ""
+    if manual_review_required:
+        notification_reason = (
+            "event rebound context confirmed"
+            if bool(require_rebound_confirmation)
+            else "event rebound context active; rebound confirmation disabled"
+        )
     if active_events and not manual_review_required:
         suggested_action = ACTION_WATCH_ONLY
-        suppression_reason = "active event is not a softening/de-escalation rebound context"
+        if event_context_active and bool(require_rebound_confirmation):
+            suppression_reason = "rebound confirmation pending"
+        else:
+            suppression_reason = "active event is not a softening/de-escalation rebound context"
     if crisis_guard_active:
         canonical_route = "no_action"
         suggested_action = ACTION_WATCH_ONLY
         manual_review_required = False
         rebound_context_active = False
+        event_context_active = False
         event_rebound_break_bear = False
         suppression_reason = "price crisis guard active"
         notification_reason = ""
+        rebound_confirmation = {"confirmed": False, "reason": "price crisis guard active"}
     if kill_reasons:
         canonical_route = "no_action"
         suggested_action = ACTION_WATCH_ONLY
         manual_review_required = False
         rebound_context_active = False
+        event_context_active = False
         event_rebound_break_bear = False
         suppression_reason = "; ".join(kill_reasons)
         notification_reason = ""
+        rebound_confirmation = {"confirmed": False, "reason": suppression_reason}
 
     generated_at = datetime.now(timezone.utc).isoformat()
     payload = {
@@ -196,6 +325,8 @@ def build_taco_rebound_shadow_signal(
         "manual_review_required": manual_review_required,
         "notification_reason": notification_reason,
         "rebound_context_active": rebound_context_active,
+        "event_context_active": event_context_active,
+        "rebound_confirmation": rebound_confirmation,
         "event_rebound_break_bear": event_rebound_break_bear,
         "would_trade_if_enabled": would_trade_if_enabled,
         "price_stress_scan_active": scan_active,
@@ -267,7 +398,9 @@ def write_taco_rebound_shadow_outputs(payload: Mapping[str, Any], output_dir: st
         "manual_review_required": payload.get("manual_review_required"),
         "notification_reason": payload.get("notification_reason"),
         "rebound_context_active": payload.get("rebound_context_active"),
+        "event_context_active": payload.get("event_context_active"),
         "event_rebound_break_bear": payload.get("event_rebound_break_bear"),
+        **flatten_for_csv(payload.get("rebound_confirmation", {})),
         **flatten_for_csv(payload.get("data_freshness", {})),
         **flatten_for_csv(payload.get("selected_event") or {}),
     }
@@ -296,6 +429,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-symbol", default=DEFAULT_BENCHMARK_SYMBOL)
     parser.add_argument("--attack-symbol", default=DEFAULT_ATTACK_SYMBOL)
     parser.add_argument("--active-signal-days", type=int, default=DEFAULT_ACTIVE_SIGNAL_DAYS)
+    parser.add_argument(
+        "--disable-rebound-confirmation",
+        action="store_true",
+        help="Notify on active softening/de-escalation context without post-event price confirmation.",
+    )
+    parser.add_argument("--confirmation-lookback-days", type=int, default=DEFAULT_CONFIRMATION_LOOKBACK_DAYS)
+    parser.add_argument(
+        "--min-confirmation-trading-days-after-event",
+        type=int,
+        default=DEFAULT_MIN_CONFIRMATION_TRADING_DAYS_AFTER_EVENT,
+    )
+    parser.add_argument(
+        "--min-benchmark-rebound-from-low",
+        type=float,
+        default=DEFAULT_MIN_BENCHMARK_REBOUND_FROM_LOW,
+    )
+    parser.add_argument("--min-attack-rebound-from-low", type=float, default=DEFAULT_MIN_ATTACK_REBOUND_FROM_LOW)
+    parser.add_argument("--min-benchmark-3d-return", type=float, default=DEFAULT_MIN_BENCHMARK_3D_RETURN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     return parser
 
@@ -327,6 +478,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         benchmark_symbol=args.benchmark_symbol,
         attack_symbol=args.attack_symbol,
         active_signal_days=args.active_signal_days,
+        require_rebound_confirmation=not args.disable_rebound_confirmation,
+        confirmation_lookback_days=args.confirmation_lookback_days,
+        min_confirmation_trading_days_after_event=args.min_confirmation_trading_days_after_event,
+        min_benchmark_rebound_from_low=args.min_benchmark_rebound_from_low,
+        min_attack_rebound_from_low=args.min_attack_rebound_from_low,
+        min_benchmark_3d_return=args.min_benchmark_3d_return,
     )
     paths = write_taco_rebound_shadow_outputs(payload, args.output_dir)
     print(

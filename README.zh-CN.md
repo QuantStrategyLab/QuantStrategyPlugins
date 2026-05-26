@@ -24,7 +24,7 @@ Brokers、Schwab、LongBridge、Firstrade 等平台仓库只负责加载 artifac
 ## 插件
 
 - `crisis_response_shadow`：面向杠杆美股策略的黑天鹅防守观察插件。它只写入 shadow-mode artifact，不调用券商接口。
-- `taco_rebound_shadow`：仅适用于 TQQQ 的事件反弹上下文通知插件。它只写入人工复核 artifact，不给仓位大小建议，也不改动配置或账户分配。
+- `taco_rebound_shadow`：仅适用于 TQQQ 的事件反弹上下文通知插件。它只写入人工复核 artifact，不给仓位大小建议，也不改动配置或账户分配。缓和/降温事件会先保持 watch-only，只有事件后价格反弹确认通过后才触发人工复核通知，以减少过早抄底提醒。
 - TACO panic-rebound 研究、组合回测和 overlay 对比也归属本仓库；snapshot pipeline 仓库只保留兼容入口。
 
 ## 使用方式

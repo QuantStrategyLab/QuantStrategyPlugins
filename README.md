@@ -28,7 +28,8 @@ send notifications; plugin research and signal generation live here.
   strategies. It writes shadow-mode artifacts and never calls brokers.
 - `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
   manual-review artifacts and never recommends position size or changes
-  allocations.
+  allocations. Softening/de-escalation events stay watch-only until post-event
+  price rebound confirmation passes, which reduces early bottom-fishing alerts.
 - TACO panic-rebound research and portfolio/overlay backtests also live here;
   snapshot pipeline repositories keep only compatibility entrypoints.
 

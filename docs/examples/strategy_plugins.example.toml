@@ -26,6 +26,7 @@ plugin = "taco_rebound_shadow"
 enabled = true
 # Notification-only TACO context. The artifact may trigger manual-review alerts,
 # but it never recommends position size or mutates allocations.
+# Manual-review alerts require post-event price rebound confirmation by default.
 
 [strategy_plugins.inputs]
 prices = "data/output/taco_rebound_shadow/input/price_history.csv"

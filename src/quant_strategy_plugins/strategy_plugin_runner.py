@@ -227,14 +227,19 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
     }
     numeric_keys = {
         "crisis_guard_drawdown",
+        "min_benchmark_rebound_from_low",
+        "min_attack_rebound_from_low",
+        "min_benchmark_3d_return",
     }
     integer_keys = {
         "active_signal_days",
         "crisis_guard_ma_days",
         "crisis_guard_ma_slope_days",
         "max_price_age_days",
+        "confirmation_lookback_days",
+        "min_confirmation_trading_days_after_event",
     }
-    bool_keys = {"suppress_when_price_crisis_guard_active"}
+    bool_keys = {"suppress_when_price_crisis_guard_active", "require_rebound_confirmation"}
     for key in string_keys:
         if key in plugin_config and plugin_config[key] is not None:
             kwargs[key] = str(plugin_config[key]).strip()

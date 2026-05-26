@@ -19,3 +19,18 @@ rate_symbols = ["IEF", "TLT"]
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/crisis_response_shadow"
+
+[[strategy_plugins]]
+strategy = "tqqq_growth_income"
+plugin = "taco_rebound_shadow"
+enabled = true
+# Notification-only TACO context. The artifact may trigger manual-review alerts,
+# but it never recommends position size or mutates allocations.
+
+[strategy_plugins.inputs]
+prices = "data/output/taco_rebound_shadow/input/price_history.csv"
+event_set = "geopolitical-deescalation"
+start_date = "2026-01-01"
+
+[strategy_plugins.outputs]
+output_dir = "data/output/tqqq_growth_income/plugins/taco_rebound_shadow"

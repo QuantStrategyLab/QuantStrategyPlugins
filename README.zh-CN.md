@@ -24,7 +24,8 @@ Brokers、Schwab、LongBridge、Firstrade 等平台仓库只负责加载 artifac
 ## 插件
 
 - `crisis_response_shadow`：面向杠杆美股策略的黑天鹅防守观察插件。它只写入 shadow-mode artifact，不调用券商接口。
-- `taco_rebound_shadow`：研究阶段的反弹预算观察插件。通用 runner 会保持 gating，直到后续验证和晋级标准满足。
+- `taco_rebound_shadow`：仅适用于 TQQQ 的事件反弹上下文通知插件。它只写入人工复核 artifact，不给仓位大小建议，也不改动配置或账户分配。
+- TACO panic-rebound 研究、组合回测和 overlay 对比也归属本仓库；snapshot pipeline 仓库只保留兼容入口。
 
 ## 使用方式
 
@@ -41,6 +42,16 @@ qsp-build-crisis-response-shadow-signal \
   --prices data/input/price_history.csv \
   --as-of 2026-05-22 \
   --output-dir data/output/tqqq_growth_income/plugins/crisis_response_shadow
+```
+
+从本地价格历史 CSV 直接生成 TACO 反弹通知 artifact：
+
+```bash
+qsp-build-taco-rebound-shadow-signal \
+  --prices data/input/price_history.csv \
+  --event-set geopolitical-deescalation \
+  --as-of 2026-05-22 \
+  --output-dir data/output/tqqq_growth_income/plugins/taco_rebound_shadow
 ```
 
 输出包括 `latest_signal.json`、按日期归档的 JSON、按日期归档的 CSV，以及 evidence CSV。平台运行时通过 `*_STRATEGY_PLUGIN_MOUNTS_JSON` 挂载的就是 `latest_signal.json`。

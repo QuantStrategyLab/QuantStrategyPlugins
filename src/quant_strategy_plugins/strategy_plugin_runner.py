@@ -28,13 +28,9 @@ PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
 PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income", "soxl_soxx_trend_income"),
+    PLUGIN_TACO_REBOUND_SHADOW: ("tqqq_growth_income",),
 }
-PLUGIN_RESEARCH_ONLY_REASONS: dict[str, str] = {
-    PLUGIN_TACO_REBOUND_SHADOW: (
-        "MAGS TACO rebound is research-only for now; use the standalone research builder/backtests, "
-        "and promote a separate TQQQ TACO overlay plugin only after its own validation."
-    ),
-}
+PLUGIN_RESEARCH_ONLY_REASONS: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -230,10 +226,6 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
         "attack_symbol",
     }
     numeric_keys = {
-        "tariff_softening_sleeve",
-        "geopolitical_deescalation_sleeve",
-        "shock_sleeve",
-        "max_sleeve",
         "crisis_guard_drawdown",
     }
     integer_keys = {

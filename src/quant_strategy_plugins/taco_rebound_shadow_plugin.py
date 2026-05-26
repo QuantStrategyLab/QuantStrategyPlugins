@@ -22,7 +22,6 @@ from .taco_panic_rebound_overlay_compare import (
 )
 from .taco_panic_rebound_research import (
     DEFAULT_EVENT_SET,
-    EVENT_KIND_SHOCK,
     EVENT_KIND_SOFTENING,
     TRADE_WAR_EVENT_SETS,
     TradeWarEvent,
@@ -30,22 +29,17 @@ from .taco_panic_rebound_research import (
 )
 from .yfinance_prices import download_price_history
 
-SCHEMA_VERSION = "taco_rebound_shadow.v1"
+SCHEMA_VERSION = "taco_rebound_shadow.v2"
 SHADOW_MODE = "shadow"
 TACO_REBOUND_PROFILE = "taco_rebound_shadow"
 ROUTE_TACO_REBOUND = "taco_rebound"
-ACTION_INCREASE_REBOUND_BUDGET = "increase_rebound_budget"
+ACTION_NOTIFY_MANUAL_REVIEW = "notify_manual_review"
 ACTION_WATCH_ONLY = "watch_only"
 ACTION_NO_ACTION = "no_action"
-ACTION_BLOCKED = "blocked"
 DEFAULT_OUTPUT_DIR = "data/output/taco_rebound_shadow"
 DEFAULT_START_DATE = "2018-01-01"
 DEFAULT_MAX_PRICE_AGE_DAYS = 4
 DEFAULT_ACTIVE_SIGNAL_DAYS = 10
-DEFAULT_TARIFF_SOFTENING_SLEEVE = 0.05
-DEFAULT_GEOPOLITICAL_DEESCALATION_SLEEVE = 0.10
-DEFAULT_SHOCK_SLEEVE = 0.0
-DEFAULT_MAX_SLEEVE = 0.10
 HARD_DEFENSE_BREAK_BEAR_REGIONS = frozenset({"iran_middle_east"})
 
 
@@ -57,27 +51,16 @@ def _next_index_date(index: pd.DatetimeIndex, raw_date: str | pd.Timestamp) -> p
     return pd.Timestamp(candidates[0]).normalize()
 
 
-def _event_sleeve(
-    event: TradeWarEvent,
-    *,
-    tariff_softening_sleeve: float,
-    geopolitical_deescalation_sleeve: float,
-    shock_sleeve: float,
-    max_sleeve: float,
-) -> float:
-    if event.kind == EVENT_KIND_SHOCK:
-        sleeve = float(shock_sleeve)
-    elif str(event.region).strip().lower() == "iran_middle_east":
-        sleeve = float(geopolitical_deescalation_sleeve)
-    else:
-        sleeve = float(tariff_softening_sleeve)
-    return max(0.0, min(float(max_sleeve), sleeve))
-
-
 def _event_allows_hard_defense(event: TradeWarEvent | None) -> bool:
     if event is None or event.kind != EVENT_KIND_SOFTENING:
         return False
     return str(event.region).strip().lower() in HARD_DEFENSE_BREAK_BEAR_REGIONS
+
+
+def _event_notice_priority(event: TradeWarEvent) -> tuple[int, int, str]:
+    kind_priority = 1 if event.kind == EVENT_KIND_SOFTENING else 0
+    region_priority = 1 if str(event.region).strip().lower() in HARD_DEFENSE_BREAK_BEAR_REGIONS else 0
+    return kind_priority, region_priority, str(event.event_date)
 
 
 def _active_recognized_events(
@@ -107,10 +90,6 @@ def build_taco_rebound_shadow_signal(
     benchmark_symbol: str = DEFAULT_BENCHMARK_SYMBOL,
     attack_symbol: str = DEFAULT_ATTACK_SYMBOL,
     active_signal_days: int = DEFAULT_ACTIVE_SIGNAL_DAYS,
-    tariff_softening_sleeve: float = DEFAULT_TARIFF_SOFTENING_SLEEVE,
-    geopolitical_deescalation_sleeve: float = DEFAULT_GEOPOLITICAL_DEESCALATION_SLEEVE,
-    shock_sleeve: float = DEFAULT_SHOCK_SLEEVE,
-    max_sleeve: float = DEFAULT_MAX_SLEEVE,
     suppress_when_price_crisis_guard_active: bool = True,
     crisis_guard_drawdown: float = DEFAULT_PRICE_CRISIS_GUARD_DRAWDOWN,
     crisis_guard_ma_days: int = DEFAULT_PRICE_CRISIS_GUARD_MA_DAYS,
@@ -171,43 +150,40 @@ def build_taco_rebound_shadow_signal(
 
     selected_event: TradeWarEvent | None = None
     selected_event_signal_date: pd.Timestamp | None = None
-    sleeve = 0.0
     for event, event_signal_date in active_events:
-        candidate_sleeve = _event_sleeve(
-            event,
-            tariff_softening_sleeve=float(tariff_softening_sleeve),
-            geopolitical_deescalation_sleeve=float(geopolitical_deescalation_sleeve),
-            shock_sleeve=float(shock_sleeve),
-            max_sleeve=float(max_sleeve),
-        )
-        if candidate_sleeve >= sleeve:
+        if selected_event is None or _event_notice_priority(event) >= _event_notice_priority(selected_event):
             selected_event = event
             selected_event_signal_date = event_signal_date
-            sleeve = candidate_sleeve
 
-    canonical_route = ROUTE_TACO_REBOUND if sleeve > 0.0 else "no_action"
-    suggested_action = ACTION_INCREASE_REBOUND_BUDGET if sleeve > 0.0 else ACTION_NO_ACTION
-    would_trade_if_enabled = sleeve > 0.0
-    allow_hard_defense = bool(would_trade_if_enabled and _event_allows_hard_defense(selected_event))
+    rebound_context_active = bool(
+        selected_event is not None and selected_event.kind == EVENT_KIND_SOFTENING and not crisis_guard_active
+    )
+    manual_review_required = rebound_context_active
+    canonical_route = ROUTE_TACO_REBOUND if manual_review_required else "no_action"
+    suggested_action = ACTION_NOTIFY_MANUAL_REVIEW if manual_review_required else ACTION_NO_ACTION
+    would_trade_if_enabled = False
+    event_rebound_break_bear = bool(manual_review_required and _event_allows_hard_defense(selected_event))
     suppression_reason = ""
-    if active_events and sleeve <= 0.0:
+    notification_reason = "event rebound context active" if manual_review_required else ""
+    if active_events and not manual_review_required:
         suggested_action = ACTION_WATCH_ONLY
-        suppression_reason = "active event has zero configured sleeve"
-        allow_hard_defense = False
+        suppression_reason = "active event is not a softening/de-escalation rebound context"
     if crisis_guard_active:
         canonical_route = "no_action"
-        suggested_action = ACTION_BLOCKED
-        would_trade_if_enabled = False
-        sleeve = 0.0
-        allow_hard_defense = False
+        suggested_action = ACTION_WATCH_ONLY
+        manual_review_required = False
+        rebound_context_active = False
+        event_rebound_break_bear = False
         suppression_reason = "price crisis guard active"
+        notification_reason = ""
     if kill_reasons:
         canonical_route = "no_action"
-        suggested_action = ACTION_BLOCKED
-        would_trade_if_enabled = False
-        sleeve = 0.0
-        allow_hard_defense = False
+        suggested_action = ACTION_WATCH_ONLY
+        manual_review_required = False
+        rebound_context_active = False
+        event_rebound_break_bear = False
         suppression_reason = "; ".join(kill_reasons)
+        notification_reason = ""
 
     generated_at = datetime.now(timezone.utc).isoformat()
     payload = {
@@ -217,9 +193,10 @@ def build_taco_rebound_shadow_signal(
         "profile": TACO_REBOUND_PROFILE,
         "canonical_route": canonical_route,
         "suggested_action": suggested_action,
-        "sleeve_suggestion": sleeve if sleeve > 0.0 else None,
-        "allow_hard_defense": allow_hard_defense,
-        "event_rebound_break_bear": allow_hard_defense,
+        "manual_review_required": manual_review_required,
+        "notification_reason": notification_reason,
+        "rebound_context_active": rebound_context_active,
+        "event_rebound_break_bear": event_rebound_break_bear,
         "would_trade_if_enabled": would_trade_if_enabled,
         "price_stress_scan_active": scan_active,
         "price_crisis_guard_active": crisis_guard_active,
@@ -255,10 +232,12 @@ def build_taco_rebound_shadow_signal(
             "broker_order_allowed": False,
             "live_allocation_mutation_allowed": False,
             "log_namespace": TACO_REBOUND_PROFILE,
-            "notification_profile": "shadow_only",
-            "intended_strategy_role": "left_side_rebound_budget_modifier",
+            "notification_profile": "manual_review_only",
+            "intended_strategy_role": "event_rebound_notification",
             "selection_allowed": False,
-            "hard_defense_override_signal_allowed": allow_hard_defense,
+            "position_sizing_allowed": False,
+            "allocation_recommendation_allowed": False,
+            "hard_defense_override_signal_allowed": False,
         },
         "generated_at": generated_at,
     }
@@ -285,8 +264,9 @@ def write_taco_rebound_shadow_outputs(payload: Mapping[str, Any], output_dir: st
         "as_of": payload.get("as_of"),
         "canonical_route": payload.get("canonical_route"),
         "suggested_action": payload.get("suggested_action"),
-        "sleeve_suggestion": payload.get("sleeve_suggestion"),
-        "allow_hard_defense": payload.get("allow_hard_defense"),
+        "manual_review_required": payload.get("manual_review_required"),
+        "notification_reason": payload.get("notification_reason"),
+        "rebound_context_active": payload.get("rebound_context_active"),
         "event_rebound_break_bear": payload.get("event_rebound_break_bear"),
         **flatten_for_csv(payload.get("data_freshness", {})),
         **flatten_for_csv(payload.get("selected_event") or {}),
@@ -316,14 +296,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-symbol", default=DEFAULT_BENCHMARK_SYMBOL)
     parser.add_argument("--attack-symbol", default=DEFAULT_ATTACK_SYMBOL)
     parser.add_argument("--active-signal-days", type=int, default=DEFAULT_ACTIVE_SIGNAL_DAYS)
-    parser.add_argument("--tariff-softening-sleeve", type=float, default=DEFAULT_TARIFF_SOFTENING_SLEEVE)
-    parser.add_argument(
-        "--geopolitical-deescalation-sleeve",
-        type=float,
-        default=DEFAULT_GEOPOLITICAL_DEESCALATION_SLEEVE,
-    )
-    parser.add_argument("--shock-sleeve", type=float, default=DEFAULT_SHOCK_SLEEVE)
-    parser.add_argument("--max-sleeve", type=float, default=DEFAULT_MAX_SLEEVE)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     return parser
 
@@ -355,10 +327,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         benchmark_symbol=args.benchmark_symbol,
         attack_symbol=args.attack_symbol,
         active_signal_days=args.active_signal_days,
-        tariff_softening_sleeve=args.tariff_softening_sleeve,
-        geopolitical_deescalation_sleeve=args.geopolitical_deescalation_sleeve,
-        shock_sleeve=args.shock_sleeve,
-        max_sleeve=args.max_sleeve,
     )
     paths = write_taco_rebound_shadow_outputs(payload, args.output_dir)
     print(
@@ -370,10 +338,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = [
-    "ACTION_INCREASE_REBOUND_BUDGET",
-    "DEFAULT_GEOPOLITICAL_DEESCALATION_SLEEVE",
-    "DEFAULT_MAX_SLEEVE",
-    "DEFAULT_TARIFF_SOFTENING_SLEEVE",
+    "ACTION_NOTIFY_MANUAL_REVIEW",
     "ROUTE_TACO_REBOUND",
     "SCHEMA_VERSION",
     "TACO_REBOUND_PROFILE",

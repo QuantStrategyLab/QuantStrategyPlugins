@@ -26,8 +26,11 @@ send notifications; plugin research and signal generation live here.
 
 - `crisis_response_shadow`: black-swan defense observer for leveraged US equity
   strategies. It writes shadow-mode artifacts and never calls brokers.
-- `taco_rebound_shadow`: research-only rebound-budget observer. The generic
-  runner keeps it gated until promotion criteria are met.
+- `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
+  manual-review artifacts and never recommends position size or changes
+  allocations.
+- TACO panic-rebound research and portfolio/overlay backtests also live here;
+  snapshot pipeline repositories keep only compatibility entrypoints.
 
 ## Usage
 
@@ -44,6 +47,16 @@ qsp-build-crisis-response-shadow-signal \
   --prices data/input/price_history.csv \
   --as-of 2026-05-22 \
   --output-dir data/output/tqqq_growth_income/plugins/crisis_response_shadow
+```
+
+Build a TACO rebound notification artifact directly from a local price-history CSV:
+
+```bash
+qsp-build-taco-rebound-shadow-signal \
+  --prices data/input/price_history.csv \
+  --event-set geopolitical-deescalation \
+  --as-of 2026-05-22 \
+  --output-dir data/output/tqqq_growth_income/plugins/taco_rebound_shadow
 ```
 
 Generated artifacts include `latest_signal.json`, dated JSON, dated CSV, and

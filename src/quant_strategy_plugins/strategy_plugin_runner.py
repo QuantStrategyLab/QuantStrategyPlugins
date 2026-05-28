@@ -40,7 +40,14 @@ PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
 PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income", "soxl_soxx_trend_income"),
-    PLUGIN_MARKET_REGIME_CONTROL: ("tqqq_growth_income", "soxl_soxx_trend_income"),
+    PLUGIN_MARKET_REGIME_CONTROL: (
+        "tqqq_growth_income",
+        "soxl_soxx_trend_income",
+        "global_etf_rotation",
+        "russell_1000_multi_factor_defensive",
+        "tech_communication_pullback_enhancement",
+        "mega_cap_leader_rotation_top50_balanced",
+    ),
     PLUGIN_MACRO_RISK_GOVERNOR: ("tqqq_growth_income",),
     PLUGIN_TACO_REBOUND_SHADOW: ("tqqq_growth_income",),
 }

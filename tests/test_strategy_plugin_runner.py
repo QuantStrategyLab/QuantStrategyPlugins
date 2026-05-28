@@ -306,7 +306,14 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
 
 
 def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> None:
-    assert SOXL_STRATEGY_NAME in PLUGIN_COMPATIBLE_STRATEGIES[PLUGIN_MARKET_REGIME_CONTROL]
+    assert set(PLUGIN_COMPATIBLE_STRATEGIES[PLUGIN_MARKET_REGIME_CONTROL]) == {
+        STRATEGY_NAME,
+        SOXL_STRATEGY_NAME,
+        "global_etf_rotation",
+        "russell_1000_multi_factor_defensive",
+        "tech_communication_pullback_enhancement",
+        "mega_cap_leader_rotation_top50_balanced",
+    }
     assert PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL] == ("market_regime_control.v1",)
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_CRISIS_RESPONSE_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_MACRO_RISK_GOVERNOR] == PLUGIN_MARKET_REGIME_CONTROL

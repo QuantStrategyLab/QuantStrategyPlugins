@@ -37,6 +37,10 @@ send notifications; plugin research and signal generation live here.
   opt in through mounted metadata. OSINT-style fields such as a Pentagon pizza
   index are kept as watch-only evidence and do not contribute to the actionable
   trading score.
+- `market_regime_control`: unified deterministic facade for crisis, macro, and
+  TACO signals. Levered strategies can consume position controls directly;
+  stock/ETF rotation strategies should consume the same artifact through their
+  local risk-scaling policy and keep TACO as notification-only.
 - `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
   manual-review artifacts and never recommends position size or changes
   allocations. Softening/de-escalation events stay watch-only until post-event

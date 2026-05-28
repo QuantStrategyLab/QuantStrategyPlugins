@@ -8,9 +8,12 @@ import pytest
 
 from quant_strategy_plugins.crisis_response_research import ROUTE_TRUE_CRISIS
 from quant_strategy_plugins.strategy_plugin_runner import (
+    PLUGIN_COMPATIBLE_STRATEGIES,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
+    PLUGIN_DEPRECATED_SUCCESSORS,
     PLUGIN_MARKET_REGIME_CONTROL,
     PLUGIN_MACRO_RISK_GOVERNOR,
+    PLUGIN_SCHEMA_VERSIONS,
     PLUGIN_TACO_REBOUND_SHADOW,
     load_plugin_config,
     main,
@@ -261,6 +264,53 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
+
+
+def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_path) -> None:
+    prices_path = tmp_path / "market_regime_prices.csv"
+    output_dir = tmp_path / SOXL_STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
+    _soxl_quiet_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": SOXL_STRATEGY_NAME,
+                "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "as_of": "2025-11-19",
+                    "benchmark_symbol": "SOXX",
+                    "attack_symbol": "SOXL",
+                    "crisis_enabled": False,
+                    "macro_enabled": False,
+                    "taco_enabled": False,
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    result = summary["strategy_plugins"][0]
+    assert result["strategy"] == SOXL_STRATEGY_NAME
+    assert result["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
+    assert result["status"] == "ok"
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["strategy"] == SOXL_STRATEGY_NAME
+    assert payload["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
+    assert payload["schema_version"] in PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL]
+    assert payload["canonical_route"] == "no_action"
+
+
+def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> None:
+    assert SOXL_STRATEGY_NAME in PLUGIN_COMPATIBLE_STRATEGIES[PLUGIN_MARKET_REGIME_CONTROL]
+    assert PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL] == ("market_regime_control.v1",)
+    assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_CRISIS_RESPONSE_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
+    assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_MACRO_RISK_GOVERNOR] == PLUGIN_MARKET_REGIME_CONTROL
+    assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_TACO_REBOUND_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
 
 
 def test_strategy_plugin_runner_rehearses_triggered_shadow_artifact_without_execution_permissions(tmp_path) -> None:
@@ -642,6 +692,7 @@ def test_strategy_plugin_runner_example_config_uses_default_mode_without_duplica
 
     assert config["default_mode"] == "shadow"
     assert "mode" not in config["strategy_plugins"][0]
+    assert config["strategy_plugins"][0]["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert config["strategy_plugins"][0]["outputs"]["output_dir"].endswith(
-        "tqqq_growth_income/plugins/crisis_response_shadow"
+        "tqqq_growth_income/plugins/market_regime_control"
     )

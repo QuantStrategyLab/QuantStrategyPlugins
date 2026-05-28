@@ -40,9 +40,20 @@ PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
 PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income", "soxl_soxx_trend_income"),
-    PLUGIN_MARKET_REGIME_CONTROL: ("tqqq_growth_income",),
+    PLUGIN_MARKET_REGIME_CONTROL: ("tqqq_growth_income", "soxl_soxx_trend_income"),
     PLUGIN_MACRO_RISK_GOVERNOR: ("tqqq_growth_income",),
     PLUGIN_TACO_REBOUND_SHADOW: ("tqqq_growth_income",),
+}
+PLUGIN_SCHEMA_VERSIONS: dict[str, tuple[str, ...]] = {
+    PLUGIN_CRISIS_RESPONSE_SHADOW: ("crisis_response_shadow.v1",),
+    PLUGIN_MARKET_REGIME_CONTROL: ("market_regime_control.v1",),
+    PLUGIN_MACRO_RISK_GOVERNOR: ("macro_risk_governor.v1",),
+    PLUGIN_TACO_REBOUND_SHADOW: ("taco_rebound_shadow.v2",),
+}
+PLUGIN_DEPRECATED_SUCCESSORS: dict[str, str] = {
+    PLUGIN_CRISIS_RESPONSE_SHADOW: PLUGIN_MARKET_REGIME_CONTROL,
+    PLUGIN_MACRO_RISK_GOVERNOR: PLUGIN_MARKET_REGIME_CONTROL,
+    PLUGIN_TACO_REBOUND_SHADOW: PLUGIN_MARKET_REGIME_CONTROL,
 }
 PLUGIN_RESEARCH_ONLY_REASONS: dict[str, str] = {}
 
@@ -615,7 +626,9 @@ __all__ = [
     "PLUGIN_MACRO_RISK_GOVERNOR",
     "PLUGIN_TACO_REBOUND_SHADOW",
     "PLUGIN_COMPATIBLE_STRATEGIES",
+    "PLUGIN_DEPRECATED_SUCCESSORS",
     "PLUGIN_RESEARCH_ONLY_REASONS",
+    "PLUGIN_SCHEMA_VERSIONS",
     "PluginRunResult",
     "load_plugin_config",
     "main",

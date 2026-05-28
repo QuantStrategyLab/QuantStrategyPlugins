@@ -3,11 +3,84 @@ default_mode = "shadow"
 
 [[strategy_plugins]]
 strategy = "tqqq_growth_income"
-plugin = "crisis_response_shadow"
+plugin = "market_regime_control"
 enabled = true
-# The runner enforces plugin/strategy compatibility. This plugin is scoped to
-# TQQQ/SOXL leveraged equity black-swan defense strategies.
-# mode is optional when it matches default_mode; only shadow notification mode is supported.
+# Default runtime contract. This facade arbitrates crisis_response_shadow,
+# macro_risk_governor, and taco_rebound_shadow into one deterministic signal.
+# Strategy code consumes only notification and position_control from this
+# artifact; broker writes and live allocation mutation remain disabled.
+# Runner artifacts include en-US/zh-CN localized_messages and log_record for
+# display/logging. Strategy logic should still read machine route/action codes.
+
+[strategy_plugins.inputs]
+prices = "data/output/market_regime_control/input/tqqq_price_history.csv"
+# Build with:
+# qsp-build-macro-external-context --start 1999-01-01 --output data/output/market_regime_control/input/external_context.csv
+external_context = "data/output/market_regime_control/input/external_context.csv"
+event_set = "geopolitical-deescalation"
+benchmark_symbol = "QQQ"
+attack_symbol = "TQQQ"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
+credit_pairs = ["HYG:IEF", "LQD:IEF"]
+financial_symbols = ["XLF", "KRE"]
+rate_symbols = ["IEF", "TLT"]
+strategy_policy = "levered_growth_income_v1"
+realized_vol_threshold = 0.30
+realized_vol_requires_confirmation = true
+# Fixed production default after external-context backtest: external hard-data
+# stress fields are notification/watch evidence unless this research switch is
+# explicitly enabled.
+external_stress_actionable = false
+delever_risk_asset_scalar = 0.0
+taco_opportunity_size_scalar = 0.0
+crisis_enabled = true
+macro_enabled = true
+taco_enabled = true
+
+[strategy_plugins.outputs]
+output_dir = "data/output/tqqq_growth_income/plugins/market_regime_control"
+
+[[strategy_plugins]]
+strategy = "market_regime_notification"
+plugin = "market_regime_control"
+enabled = true
+# General market-regime notification. This artifact is not mounted into the
+# SOXL/SOXX strategy runtime; sector-levered SOXL keeps its own validated SOXX
+# volatility gate and humans decide whether broad macro/crisis notices matter.
+
+[strategy_plugins.inputs]
+prices = "data/output/market_regime_control/input/soxl_price_history.csv"
+external_context = "data/output/market_regime_control/input/external_context.csv"
+event_set = "full"
+benchmark_symbol = "SOXX"
+attack_symbol = "SOXL"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
+credit_pairs = ["HYG:IEF", "LQD:IEF"]
+financial_symbols = ["XLF", "KRE"]
+rate_symbols = ["IEF", "TLT"]
+strategy_policy = "levered_growth_income_v1"
+realized_vol_threshold = 0.30
+realized_vol_requires_confirmation = true
+external_stress_actionable = false
+delever_risk_asset_scalar = 0.0
+taco_enabled = false
+crisis_enabled = true
+macro_enabled = true
+
+[strategy_plugins.outputs]
+output_dir = "data/output/market_regime_notification/plugins/market_regime_control"
+
+# Deprecated compatibility mounts. They remain runnable for historical
+# backtests and downstream consumers that have not migrated to
+# market_regime_control yet. New strategy integrations should not read them
+# directly.
+
+[[strategy_plugins]]
+strategy = "tqqq_growth_income"
+plugin = "crisis_response_shadow"
+enabled = false
 
 [strategy_plugins.inputs]
 prices = "data/output/crisis_response_shadow/input/price_history.csv"
@@ -16,41 +89,37 @@ event_set = "full"
 financial_symbols = ["XLF", "KRE"]
 credit_pairs = ["HYG:IEF", "LQD:IEF"]
 rate_symbols = ["IEF", "TLT"]
-# Optional shadow-only AI audit. API keys are read from env vars, not TOML:
-# QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY / QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY
-# Legacy QSP_CRISIS_AI_AUDIT_* names are still accepted.
-ai_audit_enabled = true
-ai_audit_codex_enabled = true
-ai_audit_model = "gpt-5.4-mini"
-# ai_audit_base_url = "https://api.openai.com/v1"
-# ai_audit_fallback_base_url = "https://fallback.example.com/v1"
-# ai_audit_fallback_model = "fallback-model"
-# Anthropic fallback follows the CryptoCodexAuditBridge provider-fallback style.
-# ai_audit_anthropic_model = "claude-sonnet-4-6"
-# ai_audit_anthropic_base_url = "https://api.anthropic.com/v1"
-# ai_audit_anthropic_version = "2023-06-01"
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/crisis_response_shadow"
 
 [[strategy_plugins]]
 strategy = "tqqq_growth_income"
+plugin = "macro_risk_governor"
+enabled = false
+
+[strategy_plugins.inputs]
+prices = "data/output/macro_risk_governor/input/price_history.csv"
+external_context = "data/output/macro_risk_governor/input/external_context.csv"
+benchmark_symbol = "QQQ"
+attack_symbol = "TQQQ"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
+credit_pairs = ["HYG:IEF", "LQD:IEF"]
+external_stress_actionable = false
+
+[strategy_plugins.outputs]
+output_dir = "data/output/tqqq_growth_income/plugins/macro_risk_governor"
+
+[[strategy_plugins]]
+strategy = "tqqq_growth_income"
 plugin = "taco_rebound_shadow"
-enabled = true
-# Notification-only TACO context. The artifact may trigger manual-review alerts,
-# but it never recommends position size or mutates allocations.
-# Manual-review alerts require post-event price rebound confirmation by default.
+enabled = false
 
 [strategy_plugins.inputs]
 prices = "data/output/taco_rebound_shadow/input/price_history.csv"
 event_set = "geopolitical-deescalation"
 start_date = "2026-01-01"
-# Optional shadow-only AI audit for event/source quality. It cannot alter the
-# manual-review/watch-only route or generate allocation/order instructions.
-ai_audit_enabled = true
-ai_audit_codex_enabled = true
-ai_audit_model = "gpt-5.4-mini"
-# ai_audit_anthropic_model = "claude-sonnet-4-6"
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/taco_rebound_shadow"

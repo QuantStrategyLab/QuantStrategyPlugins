@@ -30,6 +30,23 @@ send notifications; plugin research and signal generation live here.
   gaps only, never overrides the deterministic route, places orders, or changes
   allocations. Local Codex is tried first when enabled; OpenAI-compatible and
   Anthropic fallback endpoints can be configured.
+- `macro_risk_governor`: deterministic macro de-leveraging governor for TQQQ.
+  It scores price trend, realized volatility, VIX, and credit-pair stress. The
+  artifact can expose
+  `leverage_scalar` and `risk_asset_scalar` to strategy runtimes that explicitly
+  opt in through mounted metadata. External hard-data fields such as HY OAS and
+  financial-stress indices, plus OSINT-style, sentiment, options-volatility,
+  rates, breadth, funding, and liquidity fields such as a Pentagon pizza index,
+  Fear & Greed, put/call, VVIX, SKEW, MOVE, yield curves, dollar stress, and
+  safe-haven demand, are kept as watch-only evidence by default. They do not
+  contribute to the actionable trading score unless explicitly enabled for
+  research.
+- `market_regime_control`: unified deterministic facade for crisis, macro, and
+  TACO signals. Only strategies with positive backtest evidence should mount
+  position controls for automated consumption; SOXL/SOXX currently receives
+  broad macro/crisis signals as general notifications only. Stock/ETF rotation
+  strategies should consume the same artifact through their local risk-scaling
+  policy and keep TACO as notification-only.
 - `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
   manual-review artifacts and never recommends position size or changes
   allocations. Softening/de-escalation events stay watch-only until post-event
@@ -55,6 +72,23 @@ qsp-build-crisis-response-shadow-signal \
   --ai-audit-enabled \
   --output-dir data/output/tqqq_growth_income/plugins/crisis_response_shadow
 ```
+
+Build the public hard-data `external_context` CSV used by macro and unified
+market-regime plugins:
+
+```bash
+qsp-build-macro-external-context \
+  --start 1999-01-01 \
+  --output data/output/market_regime_control/input/external_context.csv
+```
+
+The builder downloads public FRED/CBOE fields when available: VIX, VIX3M,
+VVIX, SKEW, Cboe put/call ratios, HY/IG OAS, financial-stress indices, yield
+curves, trade-weighted dollar stress, and TED/funding stress. Fields without a
+stable no-login historical feed, such as CNN Fear & Greed, AAII, NAAIM,
+Pentagon pizza, MOVE, and breadth, can be supplied with `--manual-context`.
+OAS coverage follows what the public FRED graph endpoint returns; archived
+local OAS history can be injected with the same manual context path.
 
 AI audit reads API settings from environment variables:
 
@@ -83,6 +117,24 @@ qsp-build-taco-rebound-shadow-signal \
 Generated artifacts include `latest_signal.json`, dated JSON, dated CSV, and
 an evidence CSV. `latest_signal.json` is the file platform runtimes mount via
 `*_STRATEGY_PLUGIN_MOUNTS_JSON`.
+
+## Notification and Log i18n
+
+Runner-managed artifacts add display-only i18n fields for notifications and
+logs:
+
+- `localized_messages.schema_version = strategy_plugin_messages.v1`
+- `localized_messages.notification.en-US` / `localized_messages.notification.zh-CN`
+- `localized_messages.log.en-US` / `localized_messages.log.zh-CN`
+- `log_record.schema_version = strategy_plugin_log.v1`
+- `market_regime_control.notification.localized_message_schema_version`
+
+Strategy and broker runtimes should keep trading logic on machine fields such
+as `schema_version`, `canonical_route`, `suggested_action`, `reason_codes`, and
+`position_control`. Localized strings are for human notification surfaces and
+logs only. `market_regime_control.notification` mirrors the localized
+notification text and reason labels so existing notification code can render a
+message without translating route/action codes itself.
 
 ## Local Checks
 

@@ -14,6 +14,16 @@ from .crisis_response_shadow_plugin import (
     build_crisis_response_shadow_signal,
     write_crisis_response_shadow_outputs,
 )
+from .macro_risk_governor_plugin import (
+    MACRO_RISK_GOVERNOR_PROFILE,
+    build_macro_risk_governor_signal,
+    write_macro_risk_governor_outputs,
+)
+from .market_regime_control_plugin import (
+    MARKET_REGIME_CONTROL_PROFILE,
+    build_market_regime_control_signal,
+    write_market_regime_control_outputs,
+)
 from .russell_1000_multi_factor_defensive_snapshot import read_table
 from .taco_panic_rebound_research import DEFAULT_EVENT_SET, resolve_trade_war_event_set
 from .taco_rebound_shadow_plugin import (
@@ -23,12 +33,29 @@ from .taco_rebound_shadow_plugin import (
 )
 
 DEFAULT_RUNNER_OUTPUT_DIR = "data/output/strategy_plugins"
+GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY = "market_regime_notification"
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
+PLUGIN_MARKET_REGIME_CONTROL = MARKET_REGIME_CONTROL_PROFILE
+PLUGIN_MACRO_RISK_GOVERNOR = MACRO_RISK_GOVERNOR_PROFILE
 PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
-PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
-    PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income", "soxl_soxx_trend_income"),
-    PLUGIN_TACO_REBOUND_SHADOW: ("tqqq_growth_income",),
+STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION = "strategy_plugin_messages.v1"
+STRATEGY_PLUGIN_LOG_SCHEMA_VERSION = "strategy_plugin_log.v1"
+DEFAULT_MESSAGE_LOCALE = "en-US"
+SUPPORTED_MESSAGE_LOCALES = ("en-US", "zh-CN")
+EVIDENCE_AUTOMATION_APPROVED = "automation_approved"
+EVIDENCE_NOTIFICATION_ONLY = "notification_only"
+EVIDENCE_DEPRECATED_COMPATIBILITY = "deprecated_compatibility"
+PLUGIN_SCHEMA_VERSIONS: dict[str, tuple[str, ...]] = {
+    PLUGIN_CRISIS_RESPONSE_SHADOW: ("crisis_response_shadow.v1",),
+    PLUGIN_MARKET_REGIME_CONTROL: ("market_regime_control.v1",),
+    PLUGIN_MACRO_RISK_GOVERNOR: ("macro_risk_governor.v1",),
+    PLUGIN_TACO_REBOUND_SHADOW: ("taco_rebound_shadow.v2",),
+}
+PLUGIN_DEPRECATED_SUCCESSORS: dict[str, str] = {
+    PLUGIN_CRISIS_RESPONSE_SHADOW: PLUGIN_MARKET_REGIME_CONTROL,
+    PLUGIN_MACRO_RISK_GOVERNOR: PLUGIN_MARKET_REGIME_CONTROL,
+    PLUGIN_TACO_REBOUND_SHADOW: PLUGIN_MARKET_REGIME_CONTROL,
 }
 PLUGIN_RESEARCH_ONLY_REASONS: dict[str, str] = {}
 
@@ -44,6 +71,209 @@ class PluginRunResult:
     output_dir: str | None = None
     latest_signal_path: str | None = None
     message: str = ""
+
+
+@dataclass(frozen=True)
+class PluginConsumptionPolicy:
+    plugin: str
+    strategy: str
+    notification_allowed: bool
+    position_control_allowed: bool
+    evidence_status: str
+    since_version: str
+    description: str
+    intended_strategy_role: str | None = None
+
+
+PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy=GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
+        since_version="strategy_plugins.v1",
+        description="General market-regime notice. Not mounted into an automated strategy runtime.",
+        intended_strategy_role="general_market_regime_notification",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Backtested automatic macro/crisis risk controls for the TQQQ growth-income strategy.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="global_etf_rotation",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for broad ETF rotation.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="russell_1000_multi_factor_defensive",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for the Russell 1000 defensive sleeve.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="tech_communication_pullback_enhancement",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for the tech/communication pullback profile.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="mega_cap_leader_rotation_top50_balanced",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for the mega-cap leader rotation profile.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_DEPRECATED_COMPATIBILITY,
+        since_version="strategy_plugins.v1",
+        description="Deprecated direct crisis shadow mount kept for historical replay; new consumers use market_regime_control.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_DEPRECATED_COMPATIBILITY,
+        since_version="strategy_plugins.v1",
+        description="Deprecated direct macro governor mount kept for historical replay; new consumers use market_regime_control.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_TACO_REBOUND_SHADOW,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
+        since_version="strategy_plugins.v1",
+        description="Manual-review event rebound notifier for TQQQ only.",
+    ),
+)
+PLUGIN_CONSUMPTION_POLICY_REGISTRY: dict[tuple[str, str], PluginConsumptionPolicy] = {
+    (policy.plugin, policy.strategy): policy for policy in PLUGIN_CONSUMPTION_POLICIES
+}
+PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
+    plugin: tuple(
+        policy.strategy
+        for policy in PLUGIN_CONSUMPTION_POLICIES
+        if policy.plugin == plugin and policy.notification_allowed
+    )
+    for plugin in sorted({policy.plugin for policy in PLUGIN_CONSUMPTION_POLICIES})
+}
+
+LOCALIZED_ROUTE_LABELS: dict[str, dict[str, str]] = {
+    "blocked": {"en-US": "Blocked", "zh-CN": "已阻断"},
+    "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
+    "delever": {"en-US": "De-lever", "zh-CN": "降杠杆"},
+    "no_action": {"en-US": "No action", "zh-CN": "无动作"},
+    "opportunity_watch": {"en-US": "Opportunity watch", "zh-CN": "机会观察"},
+    "risk_off": {"en-US": "Risk off", "zh-CN": "风险关闭"},
+    "risk_reduced": {"en-US": "Risk reduced", "zh-CN": "风险降低"},
+    "taco_rebound": {"en-US": "TACO rebound", "zh-CN": "TACO 反弹"},
+    "true_crisis": {"en-US": "True crisis", "zh-CN": "真实危机"},
+    "watch": {"en-US": "Watch", "zh-CN": "观察"},
+}
+LOCALIZED_ACTION_LABELS: dict[str, dict[str, str]] = {
+    "blocked": {"en-US": "Blocked", "zh-CN": "已阻断"},
+    "defend": {"en-US": "Defend", "zh-CN": "防守"},
+    "delever": {"en-US": "De-lever", "zh-CN": "降杠杆"},
+    "no_action": {"en-US": "No action", "zh-CN": "无动作"},
+    "notify_manual_review": {"en-US": "Notify manual review", "zh-CN": "通知人工复核"},
+    "watch_only": {"en-US": "Watch only", "zh-CN": "仅观察"},
+}
+LOCALIZED_SOURCE_LABELS: dict[str, dict[str, str]] = {
+    "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
+    "data_quality": {"en-US": "Data quality", "zh-CN": "数据质量"},
+    "macro": {"en-US": "Macro", "zh-CN": "宏观"},
+    "taco": {"en-US": "TACO", "zh-CN": "TACO"},
+}
+LOCALIZED_REASON_LABELS: dict[str, dict[str, str]] = {
+    "aaii_bear_bull_spread_watch": {
+        "en-US": "AAII bearish-bullish spread watch",
+        "zh-CN": "AAII 熊牛差观察",
+    },
+    "advance_decline_drawdown_watch": {
+        "en-US": "Advance-decline drawdown watch",
+        "zh-CN": "涨跌线回撤观察",
+    },
+    "benchmark_below_ma": {"en-US": "Benchmark below moving average", "zh-CN": "基准低于均线"},
+    "benchmark_drawdown_crisis": {"en-US": "Benchmark crisis drawdown", "zh-CN": "基准危机回撤"},
+    "benchmark_drawdown_watch": {"en-US": "Benchmark drawdown watch", "zh-CN": "基准回撤观察"},
+    "benchmark_realized_volatility_high": {
+        "en-US": "High realized volatility",
+        "zh-CN": "实现波动偏高",
+    },
+    "blocked": {"en-US": "Blocked", "zh-CN": "已阻断"},
+    "credit_pair_stress": {"en-US": "Credit-pair stress", "zh-CN": "信用 ETF 相对压力"},
+    "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
+    "delever": {"en-US": "De-lever", "zh-CN": "降杠杆"},
+    "dollar_stress_watch": {"en-US": "Dollar stress watch", "zh-CN": "美元压力观察"},
+    "fear_greed_extreme_fear_watch": {
+        "en-US": "Fear & Greed extreme fear watch",
+        "zh-CN": "恐惧贪婪极度恐惧观察",
+    },
+    "financial_stress_index_high": {
+        "en-US": "Financial stress index high",
+        "zh-CN": "金融压力指数偏高",
+    },
+    "funding_stress_watch": {"en-US": "Funding stress watch", "zh-CN": "资金压力观察"},
+    "hy_oas_watch_level": {"en-US": "High-yield OAS watch", "zh-CN": "高收益 OAS 观察"},
+    "hy_oas_widening": {"en-US": "High-yield OAS widening", "zh-CN": "高收益 OAS 扩张"},
+    "ig_oas_watch_level": {"en-US": "Investment-grade OAS watch", "zh-CN": "投资级 OAS 观察"},
+    "ig_oas_widening_watch": {"en-US": "Investment-grade OAS widening watch", "zh-CN": "投资级 OAS 扩张观察"},
+    "market_breadth_pct_above_50d_watch": {
+        "en-US": "50-day market breadth watch",
+        "zh-CN": "50 日市场宽度观察",
+    },
+    "market_breadth_pct_above_200d_watch": {
+        "en-US": "200-day market breadth watch",
+        "zh-CN": "200 日市场宽度观察",
+    },
+    "move_high_watch": {"en-US": "MOVE high watch", "zh-CN": "MOVE 偏高观察"},
+    "naaim_exposure_low_watch": {"en-US": "NAAIM low exposure watch", "zh-CN": "NAAIM 低仓位观察"},
+    "new_high_new_low_spread_watch": {
+        "en-US": "New-high/new-low spread watch",
+        "zh-CN": "新高新低差观察",
+    },
+    "pentagon_pizza_watch": {"en-US": "Pentagon pizza index watch", "zh-CN": "五角大楼比萨指数观察"},
+    "put_call_stress_watch": {"en-US": "Put/call stress watch", "zh-CN": "Put/call 压力观察"},
+    "safe_haven_demand_watch": {"en-US": "Safe-haven demand watch", "zh-CN": "避险需求观察"},
+    "skew_high_watch": {"en-US": "SKEW high watch", "zh-CN": "SKEW 偏高观察"},
+    "taco_rebound": {"en-US": "TACO rebound context", "zh-CN": "TACO 反弹上下文"},
+    "true_crisis": {"en-US": "True crisis", "zh-CN": "真实危机"},
+    "vix_crisis_level": {"en-US": "VIX crisis level", "zh-CN": "VIX 危机水平"},
+    "vix_spike": {"en-US": "VIX spike", "zh-CN": "VIX 尖峰"},
+    "vix_term_structure_inverted_watch": {
+        "en-US": "VIX term-structure inversion watch",
+        "zh-CN": "VIX 期限结构倒挂观察",
+    },
+    "vix_watch_level": {"en-US": "VIX watch level", "zh-CN": "VIX 观察水平"},
+    "vvix_high_watch": {"en-US": "VVIX high watch", "zh-CN": "VVIX 偏高观察"},
+    "yield_curve_inversion_watch": {
+        "en-US": "Yield-curve inversion watch",
+        "zh-CN": "收益率曲线倒挂观察",
+    },
+}
 
 
 PluginRunner = Callable[[Mapping[str, Any], str], PluginRunResult]
@@ -126,12 +356,17 @@ def _validate_plugin_strategy(plugin_name: str, strategy: str) -> None:
         raise ValueError(
             f"{plugin_name} is research-only and cannot be mounted to {strategy!r}: {research_only_reason}"
         )
-    compatible = PLUGIN_COMPATIBLE_STRATEGIES.get(plugin_name, ())
-    if compatible and strategy not in compatible:
-        choices = ", ".join(compatible)
+    policy = PLUGIN_CONSUMPTION_POLICY_REGISTRY.get((plugin_name, strategy))
+    if policy is None or not policy.notification_allowed:
+        compatible = PLUGIN_COMPATIBLE_STRATEGIES.get(plugin_name, ())
+        choices = ", ".join(compatible) if compatible else "(none)"
         raise ValueError(
             f"{plugin_name} is strategy-limited and can only be mounted to: {choices}; got strategy={strategy!r}"
         )
+
+
+def _plugin_consumption_policy(plugin_name: str, strategy: str) -> PluginConsumptionPolicy | None:
+    return PLUGIN_CONSUMPTION_POLICY_REGISTRY.get((plugin_name, strategy))
 
 
 def _flatten_strategy_plugin_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
@@ -281,6 +516,85 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
     return kwargs
 
 
+def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    string_keys = {
+        "as_of",
+        "benchmark_symbol",
+        "attack_symbol",
+    }
+    numeric_keys = {
+        "benchmark_drawdown_watch",
+        "benchmark_drawdown_crisis",
+        "realized_vol_threshold",
+        "vix_watch_level",
+        "vix_crisis_level",
+        "vix_spike_threshold",
+        "credit_relative_threshold",
+        "hy_oas_watch_level",
+        "hy_oas_delta_threshold",
+        "financial_stress_watch_level",
+        "pizza_index_watch_level",
+        "fear_greed_extreme_fear_level",
+        "put_call_watch_level",
+        "safe_haven_demand_watch_level",
+        "vix_term_structure_watch_level",
+        "vvix_watch_level",
+        "skew_watch_level",
+        "move_watch_level",
+        "ig_oas_watch_level",
+        "ig_oas_delta_threshold",
+        "funding_stress_watch_level",
+        "yield_curve_inversion_watch_level",
+        "dollar_stress_return_threshold",
+        "pct_above_200d_watch_level",
+        "pct_above_50d_watch_level",
+        "new_high_new_low_spread_watch_level",
+        "advance_decline_drawdown_watch_level",
+        "aaii_bear_bull_spread_watch_level",
+        "naaim_exposure_watch_level",
+        "watch_score_threshold",
+        "delever_score_threshold",
+        "crisis_score_threshold",
+        "delever_leverage_scalar",
+        "delever_risk_asset_scalar",
+        "crisis_leverage_scalar",
+        "crisis_risk_asset_scalar",
+    }
+    integer_keys = {
+        "max_price_age_days",
+        "max_external_context_age_days",
+        "ma_days",
+        "realized_vol_window",
+        "vix_spike_lookback_days",
+        "credit_relative_lookback_days",
+        "hy_oas_delta_lookback_days",
+    }
+    bool_keys = {
+        "realized_vol_requires_confirmation",
+        "external_stress_actionable",
+    }
+    for key in string_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = str(plugin_config[key]).strip()
+    for key in numeric_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = float(plugin_config[key])
+    for key in integer_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = int(plugin_config[key])
+    for key in bool_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = _as_bool(plugin_config[key])
+    if "vix_symbols" in plugin_config:
+        kwargs["vix_symbols"] = _as_str_tuple(plugin_config["vix_symbols"])
+    if "vix3m_symbols" in plugin_config:
+        kwargs["vix3m_symbols"] = _as_str_tuple(plugin_config["vix3m_symbols"])
+    if "credit_pairs" in plugin_config:
+        kwargs["credit_pairs"] = _as_credit_pairs(plugin_config["credit_pairs"])
+    return kwargs
+
+
 PLUGIN_MODE_EXECUTION_CONTROLS: dict[str, dict[str, Any]] = {
     SHADOW_MODE: {
         "capital_impact": "none",
@@ -298,13 +612,249 @@ def _mode_execution_controls(mode: str) -> dict[str, Any]:
         raise ValueError(f"unsupported plugin mode: {mode!r}") from exc
 
 
-def _apply_plugin_contract(payload: Mapping[str, Any], *, strategy: str, plugin: str, mode: str) -> dict[str, Any]:
+def _payload_code(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _localized_label(labels: Mapping[str, Mapping[str, str]], code: Any, locale: str) -> str:
+    normalized = _payload_code(code)
+    if not normalized:
+        return ""
+    localized = labels.get(normalized, {})
+    if locale in localized:
+        return localized[locale]
+    if DEFAULT_MESSAGE_LOCALE in localized:
+        return localized[DEFAULT_MESSAGE_LOCALE]
+    return normalized if locale == "zh-CN" else normalized.replace("_", " ")
+
+
+def _message_join(values: Sequence[str], locale: str) -> str:
+    cleaned = [str(value).strip() for value in values if str(value).strip()]
+    if not cleaned:
+        return "无" if locale == "zh-CN" else "none"
+    return "、".join(cleaned) if locale == "zh-CN" else ", ".join(cleaned)
+
+
+def _message_reason_codes(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return ()
+
+
+def _nested_mapping(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = payload.get(key)
+    return value if isinstance(value, Mapping) else {}
+
+
+def _payload_route(payload: Mapping[str, Any]) -> str:
+    arbiter = _nested_mapping(payload, "arbiter")
+    return _payload_code(payload.get("canonical_route") or payload.get("route") or arbiter.get("final_route"))
+
+
+def _payload_action(payload: Mapping[str, Any]) -> str:
+    arbiter = _nested_mapping(payload, "arbiter")
+    return _payload_code(payload.get("suggested_action") or payload.get("action") or arbiter.get("suggested_action"))
+
+
+def _payload_reason_codes(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    reason_codes: list[str] = []
+    for container in (
+        payload,
+        _nested_mapping(payload, "arbiter"),
+        _nested_mapping(payload, "notification"),
+        _nested_mapping(payload, "position_control"),
+    ):
+        reason_codes.extend(_message_reason_codes(container.get("reason_codes")))
+    if not reason_codes:
+        route = _payload_route(payload)
+        if route and route != "no_action":
+            reason_codes.append(route)
+    return tuple(dict.fromkeys(reason_codes))
+
+
+def _localized_reason_label(reason_code: str, locale: str) -> str:
+    source, separator, raw_code = str(reason_code).partition(":")
+    if separator:
+        source_label = _localized_label(LOCALIZED_SOURCE_LABELS, source, locale)
+        reason_label = _localized_label(LOCALIZED_REASON_LABELS, raw_code, locale)
+        separator_text = "：" if locale == "zh-CN" else ": "
+        return f"{source_label}{separator_text}{reason_label}"
+    return _localized_label(LOCALIZED_REASON_LABELS, source, locale)
+
+
+def _localized_reason_labels(reason_codes: Sequence[str], locale: str) -> tuple[str, ...]:
+    return tuple(_localized_reason_label(reason_code, locale) for reason_code in reason_codes)
+
+
+def _payload_should_notify(payload: Mapping[str, Any], route: str) -> bool:
+    notification = _nested_mapping(payload, "notification")
+    if "should_notify" in notification:
+        return _as_bool(notification.get("should_notify"), default=False)
+    if "manual_review_required" in payload:
+        return _as_bool(payload.get("manual_review_required"), default=False) or route != "no_action"
+    return route != "no_action"
+
+
+def _format_notification_message(
+    *,
+    locale: str,
+    strategy: str,
+    plugin: str,
+    as_of: str,
+    route_label: str,
+    action_label: str,
+    reason_labels: Sequence[str],
+    should_notify: bool,
+) -> str:
+    reason_text = _message_join(reason_labels, locale)
+    if locale == "zh-CN":
+        prefix = "需要通知" if should_notify else "无需通知"
+        return (
+            f"{prefix}：策略 {strategy} 的 {plugin} 在 {as_of or '未知日期'} 输出"
+            f"市场状态 {route_label}，建议动作 {action_label}，原因：{reason_text}。"
+        )
+    prefix = "Notification required" if should_notify else "No notification required"
+    return (
+        f"{prefix}: {plugin} for strategy {strategy} produced market regime {route_label} "
+        f"on {as_of or 'unknown date'} with suggested action {action_label}. Reasons: {reason_text}."
+    )
+
+
+def _format_log_message(
+    *,
+    locale: str,
+    strategy: str,
+    plugin: str,
+    as_of: str,
+    route: str,
+    action: str,
+    route_label: str,
+    action_label: str,
+    reason_codes: Sequence[str],
+    reason_labels: Sequence[str],
+) -> str:
+    code_text = _message_join(reason_codes, "en-US")
+    label_text = _message_join(reason_labels, locale)
+    if locale == "zh-CN":
+        return (
+            f"策略={strategy} 插件={plugin} 日期={as_of or '未知'} 路线={route}({route_label}) "
+            f"动作={action}({action_label}) 原因码={code_text} 原因={label_text}"
+        )
+    return (
+        f"strategy={strategy} plugin={plugin} as_of={as_of or 'unknown'} route={route}({route_label}) "
+        f"action={action}({action_label}) reason_codes={code_text} reasons={label_text}"
+    )
+
+
+def _build_localized_messages(
+    payload: Mapping[str, Any],
+    *,
+    strategy: str,
+    plugin: str,
+) -> dict[str, Any]:
+    route = _payload_route(payload) or "unknown"
+    action = _payload_action(payload) or "unknown"
+    reason_codes = _payload_reason_codes(payload)
+    as_of = str(payload.get("as_of") or "").strip()
+    should_notify = _payload_should_notify(payload, route)
+
+    route_labels = {
+        locale: _localized_label(LOCALIZED_ROUTE_LABELS, route, locale) for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    action_labels = {
+        locale: _localized_label(LOCALIZED_ACTION_LABELS, action, locale) for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    reason_labels = {
+        locale: list(_localized_reason_labels(reason_codes, locale)) for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    notification_messages = {
+        locale: _format_notification_message(
+            locale=locale,
+            strategy=strategy,
+            plugin=plugin,
+            as_of=as_of,
+            route_label=route_labels[locale],
+            action_label=action_labels[locale],
+            reason_labels=reason_labels[locale],
+            should_notify=should_notify,
+        )
+        for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    log_messages = {
+        locale: _format_log_message(
+            locale=locale,
+            strategy=strategy,
+            plugin=plugin,
+            as_of=as_of,
+            route=route,
+            action=action,
+            route_label=route_labels[locale],
+            action_label=action_labels[locale],
+            reason_codes=reason_codes,
+            reason_labels=reason_labels[locale],
+        )
+        for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    return {
+        "schema_version": STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION,
+        "default_locale": DEFAULT_MESSAGE_LOCALE,
+        "supported_locales": list(SUPPORTED_MESSAGE_LOCALES),
+        "labels": {
+            "canonical_route": route_labels,
+            "suggested_action": action_labels,
+            "reason_codes": reason_labels,
+        },
+        "notification": notification_messages,
+        "log": log_messages,
+    }
+
+
+def _build_log_record(
+    payload: Mapping[str, Any],
+    *,
+    strategy: str,
+    plugin: str,
+    mode: str,
+    localized_messages: Mapping[str, Any],
+) -> dict[str, Any]:
+    reason_codes = _payload_reason_codes(payload)
+    execution_controls = _nested_mapping(payload, "execution_controls")
+    return {
+        "schema_version": STRATEGY_PLUGIN_LOG_SCHEMA_VERSION,
+        "event": "strategy_plugin_signal",
+        "namespace": str(execution_controls.get("log_namespace") or plugin),
+        "strategy": strategy,
+        "plugin": plugin,
+        "mode": mode,
+        "as_of": str(payload.get("as_of") or "").strip(),
+        "canonical_route": _payload_route(payload),
+        "suggested_action": _payload_action(payload),
+        "reason_codes": list(reason_codes),
+        "default_locale": DEFAULT_MESSAGE_LOCALE,
+        "localized_messages": dict(localized_messages.get("log", {})),
+    }
+
+
+def _apply_plugin_contract(
+    payload: Mapping[str, Any],
+    *,
+    strategy: str,
+    plugin: str,
+    mode: str,
+    consumption_policy: PluginConsumptionPolicy | None = None,
+) -> dict[str, Any]:
     contracted_payload = dict(payload)
     contracted_payload["strategy"] = strategy
     contracted_payload["plugin"] = plugin
     contracted_payload["mode"] = mode
     contracted_payload["configured_mode"] = mode
     contracted_payload["effective_mode"] = mode
+    if consumption_policy is not None:
+        contracted_payload["consumption_policy"] = asdict(consumption_policy)
 
     execution_controls = dict(contracted_payload.get("execution_controls") or {})
     execution_controls.update(_mode_execution_controls(mode))
@@ -312,10 +862,45 @@ def _apply_plugin_contract(payload: Mapping[str, Any], *, strategy: str, plugin:
     execution_controls["effective_mode"] = mode
     execution_controls["repository_broker_write_allowed"] = False
     execution_controls["repository_allocation_mutation_allowed"] = False
+    if consumption_policy is not None:
+        execution_controls["notification_allowed"] = bool(consumption_policy.notification_allowed)
+        execution_controls["position_control_allowed"] = bool(consumption_policy.position_control_allowed)
+        execution_controls["consumption_evidence_status"] = consumption_policy.evidence_status
+    if consumption_policy is not None and consumption_policy.intended_strategy_role == "general_market_regime_notification":
+        execution_controls["capital_impact"] = "notification_only"
+        execution_controls["strategy_runtime_metadata_allowed"] = False
+        execution_controls["position_control_shadow_only"] = True
+        execution_controls["intended_strategy_role"] = "general_market_regime_notification"
     execution_controls["mode_note"] = (
         "Mode is the platform behavior contract; this repository writes artifacts and does not call brokers"
     )
+    execution_controls["message_i18n_schema_version"] = STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION
+    execution_controls["log_schema_version"] = STRATEGY_PLUGIN_LOG_SCHEMA_VERSION
+    execution_controls["default_locale"] = DEFAULT_MESSAGE_LOCALE
+    execution_controls["supported_locales"] = list(SUPPORTED_MESSAGE_LOCALES)
     contracted_payload["execution_controls"] = execution_controls
+    localized_messages = _build_localized_messages(
+        contracted_payload,
+        strategy=strategy,
+        plugin=plugin,
+    )
+    contracted_payload["localized_messages"] = localized_messages
+    contracted_payload["log_record"] = _build_log_record(
+        contracted_payload,
+        strategy=strategy,
+        plugin=plugin,
+        mode=mode,
+        localized_messages=localized_messages,
+    )
+    notification = contracted_payload.get("notification")
+    if isinstance(notification, Mapping):
+        localized_notification = dict(notification)
+        localized_notification["localized_message_schema_version"] = STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION
+        localized_notification["default_locale"] = DEFAULT_MESSAGE_LOCALE
+        localized_notification["supported_locales"] = list(SUPPORTED_MESSAGE_LOCALES)
+        localized_notification["localized_messages"] = dict(localized_messages["notification"])
+        localized_notification["localized_reason_labels"] = dict(localized_messages["labels"]["reason_codes"])
+        contracted_payload["notification"] = localized_notification
     return contracted_payload
 
 
@@ -336,6 +921,31 @@ def _build_taco_rebound_payload(price_history: pd.DataFrame, plugin_config: Mapp
         price_history,
         events=resolve_trade_war_event_set(event_set),
         **_build_taco_rebound_kwargs(plugin_config),
+    )
+
+
+def _build_macro_risk_governor_payload(price_history: pd.DataFrame, plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    external_context = _optional_table(plugin_config.get("external_context"))
+    return build_macro_risk_governor_signal(
+        price_history,
+        external_context=external_context,
+        **_build_macro_risk_governor_kwargs(plugin_config),
+    )
+
+
+def _build_market_regime_control_payload(price_history: pd.DataFrame, plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    components: dict[str, Mapping[str, Any]] = {}
+    if _as_bool(plugin_config.get("crisis_enabled"), default=True):
+        components["crisis"] = _build_crisis_response_payload(price_history, plugin_config)
+    if _as_bool(plugin_config.get("macro_enabled"), default=True):
+        components["macro"] = _build_macro_risk_governor_payload(price_history, plugin_config)
+    if _as_bool(plugin_config.get("taco_enabled"), default=True):
+        components["taco"] = _build_taco_rebound_payload(price_history, plugin_config)
+    return build_market_regime_control_signal(
+        components,
+        strategy_policy=str(plugin_config.get("strategy_policy", "levered_growth_income_v1")).strip(),
+        taco_opportunity_size_scalar=float(plugin_config.get("taco_opportunity_size_scalar", 0.0) or 0.0),
+        as_of=str(plugin_config.get("as_of", "") or "").strip() or None,
     )
 
 
@@ -361,12 +971,20 @@ def _run_table_strategy_plugin(
             message="plugin disabled",
         )
     _validate_plugin_mode(plugin, mode)
+    _validate_plugin_strategy(plugin, strategy)
+    consumption_policy = _plugin_consumption_policy(plugin, strategy)
 
     prices_path = str(plugin_config.get("prices", "")).strip()
     if not prices_path:
         raise ValueError(f"{plugin} for strategy={strategy} requires a prices path")
     payload = spec.build_payload(read_table(prices_path), plugin_config)
-    payload = _apply_plugin_contract(payload, strategy=strategy, plugin=plugin, mode=mode)
+    payload = _apply_plugin_contract(
+        payload,
+        strategy=strategy,
+        plugin=plugin,
+        mode=mode,
+        consumption_policy=consumption_policy,
+    )
     paths = spec.write_outputs(payload, output_dir)
     return PluginRunResult(
         strategy=strategy,
@@ -391,6 +1009,16 @@ TACO_REBOUND_SHADOW_SPEC = PluginExecutionSpec(
     build_payload=_build_taco_rebound_payload,
     write_outputs=write_taco_rebound_shadow_outputs,
 )
+MACRO_RISK_GOVERNOR_SPEC = PluginExecutionSpec(
+    default_plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+    build_payload=_build_macro_risk_governor_payload,
+    write_outputs=write_macro_risk_governor_outputs,
+)
+MARKET_REGIME_CONTROL_SPEC = PluginExecutionSpec(
+    default_plugin=PLUGIN_MARKET_REGIME_CONTROL,
+    build_payload=_build_market_regime_control_payload,
+    write_outputs=write_market_regime_control_outputs,
+)
 
 
 def run_crisis_response_shadow_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
@@ -401,8 +1029,18 @@ def run_taco_rebound_shadow_plugin(plugin_config: Mapping[str, Any], default_mod
     return _run_table_strategy_plugin(plugin_config, default_mode, TACO_REBOUND_SHADOW_SPEC)
 
 
+def run_macro_risk_governor_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
+    return _run_table_strategy_plugin(plugin_config, default_mode, MACRO_RISK_GOVERNOR_SPEC)
+
+
+def run_market_regime_control_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
+    return _run_table_strategy_plugin(plugin_config, default_mode, MARKET_REGIME_CONTROL_SPEC)
+
+
 PLUGIN_RUNNERS: dict[str, PluginRunner] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: run_crisis_response_shadow_plugin,
+    PLUGIN_MARKET_REGIME_CONTROL: run_market_regime_control_plugin,
+    PLUGIN_MACRO_RISK_GOVERNOR: run_macro_risk_governor_plugin,
     PLUGIN_TACO_REBOUND_SHADOW: run_taco_rebound_shadow_plugin,
 }
 
@@ -493,14 +1131,26 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY",
     "PLUGIN_CRISIS_RESPONSE_SHADOW",
+    "PLUGIN_MARKET_REGIME_CONTROL",
+    "PLUGIN_MACRO_RISK_GOVERNOR",
     "PLUGIN_TACO_REBOUND_SHADOW",
     "PLUGIN_COMPATIBLE_STRATEGIES",
+    "PLUGIN_CONSUMPTION_POLICIES",
+    "PLUGIN_CONSUMPTION_POLICY_REGISTRY",
+    "PLUGIN_DEPRECATED_SUCCESSORS",
     "PLUGIN_RESEARCH_ONLY_REASONS",
+    "PLUGIN_SCHEMA_VERSIONS",
+    "STRATEGY_PLUGIN_LOG_SCHEMA_VERSION",
+    "STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION",
+    "PluginConsumptionPolicy",
     "PluginRunResult",
     "load_plugin_config",
     "main",
     "run_configured_plugins",
     "run_crisis_response_shadow_plugin",
+    "run_market_regime_control_plugin",
+    "run_macro_risk_governor_plugin",
     "run_taco_rebound_shadow_plugin",
 ]

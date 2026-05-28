@@ -206,6 +206,68 @@ def test_macro_risk_governor_keeps_common_external_risk_indicators_watch_only() 
     assert payload["evidence"]["metrics"]["yield_curve_min"] == -0.8
 
 
+def test_macro_risk_governor_keeps_external_stress_watch_only_by_default() -> None:
+    external_context = pd.DataFrame(
+        [
+            {
+                "as_of": "2025-12-31",
+                "hy_oas": 8.0,
+                "hy_oas_delta_63d": 2.0,
+                "financial_stress": 2.0,
+            }
+        ]
+    )
+
+    payload = build_macro_risk_governor_signal(
+        _macro_prices(),
+        external_context=external_context,
+        as_of="2025-12-31",
+        watch_score_threshold=1.0,
+        delever_score_threshold=1.0,
+        crisis_score_threshold=99.0,
+    )
+
+    assert payload["canonical_route"] == ROUTE_WATCH
+    assert payload["suggested_action"] == "watch_only"
+    assert payload["would_trade_if_enabled"] is False
+    assert payload["actionable_score"] == 0.0
+    assert payload["total_score"] == 5.0
+    for check_name in ("hy_oas_watch_level", "hy_oas_widening", "financial_stress_index_high"):
+        assert payload["checks"][check_name]["active"] is True
+        assert payload["checks"][check_name]["actionable"] is False
+
+
+def test_macro_risk_governor_can_opt_in_external_stress_actionability() -> None:
+    external_context = pd.DataFrame(
+        [
+            {
+                "as_of": "2025-12-31",
+                "hy_oas": 8.0,
+                "hy_oas_delta_63d": 2.0,
+                "financial_stress": 2.0,
+            }
+        ]
+    )
+
+    payload = build_macro_risk_governor_signal(
+        _macro_prices(),
+        external_context=external_context,
+        as_of="2025-12-31",
+        external_stress_actionable=True,
+        watch_score_threshold=1.0,
+        delever_score_threshold=1.0,
+        crisis_score_threshold=99.0,
+    )
+
+    assert payload["canonical_route"] == ROUTE_DELEVER
+    assert payload["suggested_action"] == "delever"
+    assert payload["would_trade_if_enabled"] is True
+    assert payload["actionable_score"] == 5.0
+    for check_name in ("hy_oas_watch_level", "hy_oas_widening", "financial_stress_index_high"):
+        assert payload["checks"][check_name]["active"] is True
+        assert payload["checks"][check_name]["actionable"] is True
+
+
 def test_macro_risk_governor_requires_confirmation_for_realized_volatility_action() -> None:
     payload = build_macro_risk_governor_signal(
         _macro_prices(volatility_spike=True),

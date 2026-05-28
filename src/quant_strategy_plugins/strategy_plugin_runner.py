@@ -474,6 +474,7 @@ def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[
     }
     bool_keys = {
         "realized_vol_requires_confirmation",
+        "external_stress_actionable",
     }
     for key in string_keys:
         if key in plugin_config and plugin_config[key] is not None:

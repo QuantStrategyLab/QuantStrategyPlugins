@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-strategy-plugins"
-version = "0.1.2"
+version = "0.1.3"
 description = "Open sidecar strategy plugins that emit QuantPlatformKit-compatible signal artifacts."
 readme = "README.md"
 requires-python = ">=3.11"

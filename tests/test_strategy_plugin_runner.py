@@ -225,6 +225,63 @@ def test_strategy_plugin_runner_runs_macro_risk_governor_for_tqqq(tmp_path) -> N
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
 
 
+def test_strategy_plugin_runner_keeps_external_stress_watch_only_unless_opted_in(tmp_path) -> None:
+    prices_path = tmp_path / "macro_prices.csv"
+    external_path = tmp_path / "external_context.csv"
+    output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_MACRO_RISK_GOVERNOR
+    _quiet_prices().to_csv(prices_path, index=False)
+    pd.DataFrame(
+        [
+            {
+                "as_of": "2025-11-19",
+                "hy_oas": 8.0,
+                "hy_oas_delta_63d": 2.0,
+                "financial_stress": 2.0,
+            }
+        ]
+    ).to_csv(external_path, index=False)
+    base_inputs = {
+        "prices": str(prices_path),
+        "external_context": str(external_path),
+        "as_of": "2025-11-19",
+        "vix_symbols": ["VIX"],
+        "credit_pairs": [],
+        "watch_score_threshold": 1.0,
+        "delever_score_threshold": 1.0,
+        "crisis_score_threshold": 99.0,
+    }
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": STRATEGY_NAME,
+                "plugin": PLUGIN_MACRO_RISK_GOVERNOR,
+                "enabled": True,
+                "inputs": base_inputs,
+                "outputs": {"output_dir": str(output_dir / "watch_only")},
+            },
+            {
+                "strategy": STRATEGY_NAME,
+                "plugin": PLUGIN_MACRO_RISK_GOVERNOR,
+                "enabled": True,
+                "inputs": {**base_inputs, "external_stress_actionable": True},
+                "outputs": {"output_dir": str(output_dir / "actionable")},
+            },
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    assert [result["status"] for result in summary["strategy_plugins"]] == ["ok", "ok"]
+    watch_payload = json.loads((output_dir / "watch_only" / "latest_signal.json").read_text(encoding="utf-8"))
+    actionable_payload = json.loads((output_dir / "actionable" / "latest_signal.json").read_text(encoding="utf-8"))
+    assert watch_payload["canonical_route"] == "watch"
+    assert watch_payload["actionable_score"] == 0.0
+    assert actionable_payload["canonical_route"] == "delever"
+    assert actionable_payload["actionable_score"] == 5.0
+
+
 def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_path) -> None:
     prices_path = tmp_path / "market_regime_prices.csv"
     output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL

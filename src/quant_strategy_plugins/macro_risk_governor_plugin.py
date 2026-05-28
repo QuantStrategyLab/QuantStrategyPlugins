@@ -314,6 +314,7 @@ def build_macro_risk_governor_signal(
     delever_risk_asset_scalar: float = 0.0,
     crisis_leverage_scalar: float = 0.0,
     crisis_risk_asset_scalar: float = 0.0,
+    external_stress_actionable: bool = False,
 ) -> dict[str, Any]:
     close = normalize_close(price_history)
     benchmark_symbol = str(benchmark_symbol or DEFAULT_BENCHMARK_SYMBOL).strip().upper()
@@ -496,6 +497,7 @@ def build_macro_risk_governor_signal(
         weight=2.0,
         value=hy_oas,
         threshold=float(hy_oas_watch_level),
+        actionable=bool(external_stress_actionable),
     )
     _add_check(
         checks,
@@ -504,6 +506,7 @@ def build_macro_risk_governor_signal(
         weight=1.0,
         value=hy_oas_delta,
         threshold=float(hy_oas_delta_threshold),
+        actionable=bool(external_stress_actionable),
     )
     financial_stress = _external_float(external_row, "stlfsi", "stlfsi4", "nfci", "anfci", "financial_stress")
     _add_check(
@@ -513,6 +516,7 @@ def build_macro_risk_governor_signal(
         weight=2.0,
         value=financial_stress,
         threshold=float(financial_stress_watch_level),
+        actionable=bool(external_stress_actionable),
     )
     pizza_index = _external_float(
         external_row,
@@ -751,15 +755,20 @@ def build_macro_risk_governor_signal(
     if realized_vol_check is not None:
         volatility_active = bool(realized_vol_check.get("active", False))
         if volatility_active:
-            confirmation_checks = (
+            confirmation_checks = [
                 "vix_watch_level",
                 "vix_crisis_level",
                 "vix_spike",
                 "credit_pair_stress",
-                "hy_oas_watch_level",
-                "hy_oas_widening",
-                "financial_stress_index_high",
-            )
+            ]
+            if bool(external_stress_actionable):
+                confirmation_checks.extend(
+                    [
+                        "hy_oas_watch_level",
+                        "hy_oas_widening",
+                        "financial_stress_index_high",
+                    ]
+                )
             realized_vol_confirmed_for_action = any(
                 bool(checks.get(name, {}).get("active", False)) for name in confirmation_checks
             )
@@ -793,6 +802,7 @@ def build_macro_risk_governor_signal(
             "advance_decline_drawdown": advance_decline_drawdown,
             "aaii_bear_bull_spread": aaii_bear_bull_spread,
             "naaim_exposure": naaim_exposure,
+            "external_stress_actionable": bool(external_stress_actionable),
             "benchmark_realized_volatility_requires_confirmation": bool(realized_vol_requires_confirmation),
             "benchmark_realized_volatility_confirmed_for_action": realized_vol_confirmed_for_action,
         }
@@ -877,7 +887,10 @@ def build_macro_risk_governor_signal(
             "actionable_score": round(float(actionable_score), 4),
             "total_score": round(float(total_score), 4),
             "reason_codes": reason_codes,
-            "note": "OSINT-only fields are watch evidence and do not contribute to actionable_score.",
+            "note": (
+                "External stress and OSINT-style fields are watch evidence by default and do not contribute "
+                "to actionable_score unless explicitly enabled."
+            ),
         },
         "execution_controls": {
             "capital_impact": "strategy_opt_in",
@@ -973,7 +986,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--realized-vol-requires-confirmation",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Require VIX, credit, or financial-stress confirmation before realized volatility contributes to actionable score.",
+        help=(
+            "Require VIX or credit confirmation before realized volatility contributes to actionable score. "
+            "External stress confirms only when --external-stress-actionable is enabled."
+        ),
+    )
+    parser.add_argument(
+        "--external-stress-actionable",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow external HY OAS and financial-stress fields to contribute to actionable score.",
     )
     parser.add_argument("--watch-score-threshold", type=float, default=3.0)
     parser.add_argument("--delever-score-threshold", type=float, default=5.0)
@@ -1014,6 +1036,7 @@ def main(argv: list[str] | None = None) -> int:
         max_external_context_age_days=args.max_external_context_age_days,
         realized_vol_threshold=args.realized_vol_threshold,
         realized_vol_requires_confirmation=args.realized_vol_requires_confirmation,
+        external_stress_actionable=args.external_stress_actionable,
         watch_score_threshold=args.watch_score_threshold,
         delever_score_threshold=args.delever_score_threshold,
         crisis_score_threshold=args.crisis_score_threshold,

@@ -26,6 +26,10 @@ rate_symbols = ["IEF", "TLT"]
 strategy_policy = "levered_growth_income_v1"
 realized_vol_threshold = 0.30
 realized_vol_requires_confirmation = true
+# Fixed production default after external-context backtest: external hard-data
+# stress fields are notification/watch evidence unless this research switch is
+# explicitly enabled.
+external_stress_actionable = false
 delever_risk_asset_scalar = 0.0
 taco_opportunity_size_scalar = 0.0
 crisis_enabled = true
@@ -57,6 +61,7 @@ rate_symbols = ["IEF", "TLT"]
 strategy_policy = "levered_growth_income_v1"
 realized_vol_threshold = 0.30
 realized_vol_requires_confirmation = true
+external_stress_actionable = false
 delever_risk_asset_scalar = 0.0
 taco_enabled = false
 crisis_enabled = true
@@ -99,6 +104,7 @@ attack_symbol = "TQQQ"
 vix_symbols = ["VIX", "^VIX", "VIXCLS"]
 vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
 credit_pairs = ["HYG:IEF", "LQD:IEF"]
+external_stress_actionable = false
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/macro_risk_governor"

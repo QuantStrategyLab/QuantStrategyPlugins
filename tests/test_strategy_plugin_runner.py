@@ -256,7 +256,7 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert payload["canonical_route"] == "risk_reduced"
     assert payload["position_control"]["leverage_scalar"] == 0.0
-    assert payload["position_control"]["risk_asset_scalar"] == 1.0
+    assert payload["position_control"]["risk_asset_scalar"] == 0.0
     assert payload["position_control"]["taco_allowed"] is False
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
     assert payload["execution_controls"]["broker_order_allowed"] is False

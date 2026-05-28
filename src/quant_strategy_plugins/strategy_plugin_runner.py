@@ -331,6 +331,9 @@ def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[
         "credit_relative_lookback_days",
         "hy_oas_delta_lookback_days",
     }
+    bool_keys = {
+        "realized_vol_requires_confirmation",
+    }
     for key in string_keys:
         if key in plugin_config and plugin_config[key] is not None:
             kwargs[key] = str(plugin_config[key]).strip()
@@ -340,6 +343,9 @@ def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[
     for key in integer_keys:
         if key in plugin_config and plugin_config[key] is not None:
             kwargs[key] = int(plugin_config[key])
+    for key in bool_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = _as_bool(plugin_config[key])
     if "vix_symbols" in plugin_config:
         kwargs["vix_symbols"] = _as_str_tuple(plugin_config["vix_symbols"])
     if "credit_pairs" in plugin_config:

@@ -14,11 +14,11 @@ from quant_strategy_plugins.macro_risk_governor_plugin import (
 )
 
 
-def _macro_prices(*, stress: bool = False) -> pd.DataFrame:
+def _macro_prices(*, stress: bool = False, volatility_spike: bool = False, vix_level: float = 15.0) -> pd.DataFrame:
     dates = pd.bdate_range("2025-01-02", periods=260)
     rows: list[dict[str, object]] = []
     qqq = pd.Series([100.0 + idx * 0.10 for idx in range(len(dates))], index=dates)
-    vix = pd.Series(15.0, index=dates)
+    vix = pd.Series(float(vix_level), index=dates)
     hyg = pd.Series(100.0, index=dates)
     ief = pd.Series(100.0, index=dates)
     if stress:
@@ -34,6 +34,11 @@ def _macro_prices(*, stress: bool = False) -> pd.DataFrame:
         ief.iloc[-22:] = pd.Series(
             [100.0 + idx * (3.0 / 21.0) for idx in range(22)],
             index=dates[-22:],
+        )
+    if volatility_spike:
+        qqq.iloc[-10:] = pd.Series(
+            [130.0, 122.0, 131.0, 121.0, 132.0, 122.0, 133.0, 123.0, 134.0, 124.0],
+            index=dates[-10:],
         )
     prices = {
         "QQQ": qqq,
@@ -69,7 +74,7 @@ def test_macro_risk_governor_routes_stress_to_delever_when_below_crisis_threshol
     assert payload["suggested_action"] == "delever"
     assert payload["would_trade_if_enabled"] is True
     assert payload["leverage_scalar"] == 0.0
-    assert payload["risk_asset_scalar"] == 1.0
+    assert payload["risk_asset_scalar"] == 0.0
     assert "vix_crisis_level" in payload["reason_codes"]
     assert payload["checks"]["pentagon_pizza_watch"]["actionable"] is False
 
@@ -107,6 +112,44 @@ def test_macro_risk_governor_keeps_pizza_index_watch_only() -> None:
     assert payload["actionable_score"] == 0.0
     assert payload["checks"]["pentagon_pizza_watch"]["active"] is True
     assert payload["checks"]["pentagon_pizza_watch"]["actionable"] is False
+
+
+def test_macro_risk_governor_requires_confirmation_for_realized_volatility_action() -> None:
+    payload = build_macro_risk_governor_signal(
+        _macro_prices(volatility_spike=True),
+        as_of="2025-12-31",
+        watch_score_threshold=1.0,
+        delever_score_threshold=1.0,
+        crisis_score_threshold=99.0,
+    )
+
+    volatility_check = payload["checks"]["benchmark_realized_volatility_high"]
+    assert volatility_check["active"] is True
+    assert volatility_check["actionable"] is False
+    assert volatility_check["confirmed_for_action"] is False
+    assert volatility_check["suppression_reason"] == "missing_volatility_stress_confirmation"
+    assert payload["actionable_score"] == 0.0
+    assert payload["total_score"] == 1.0
+    assert payload["canonical_route"] == ROUTE_WATCH
+    assert payload["suggested_action"] == "watch_only"
+
+
+def test_macro_risk_governor_allows_realized_volatility_action_when_vix_confirms() -> None:
+    payload = build_macro_risk_governor_signal(
+        _macro_prices(volatility_spike=True, vix_level=30.0),
+        as_of="2025-12-31",
+        watch_score_threshold=1.0,
+        delever_score_threshold=1.0,
+        crisis_score_threshold=99.0,
+    )
+
+    volatility_check = payload["checks"]["benchmark_realized_volatility_high"]
+    assert volatility_check["active"] is True
+    assert volatility_check["actionable"] is True
+    assert volatility_check["confirmed_for_action"] is True
+    assert payload["actionable_score"] >= 1.0
+    assert payload["canonical_route"] == ROUTE_DELEVER
+    assert payload["suggested_action"] == "delever"
 
 
 def test_macro_risk_governor_writes_json_csv_and_evidence(tmp_path) -> None:

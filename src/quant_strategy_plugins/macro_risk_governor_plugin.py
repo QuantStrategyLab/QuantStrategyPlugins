@@ -245,7 +245,8 @@ def build_macro_risk_governor_signal(
     benchmark_drawdown_watch: float = -0.10,
     benchmark_drawdown_crisis: float = -0.18,
     realized_vol_window: int = 10,
-    realized_vol_threshold: float = 0.35,
+    realized_vol_threshold: float = 0.30,
+    realized_vol_requires_confirmation: bool = True,
     vix_watch_level: float = 28.0,
     vix_crisis_level: float = 35.0,
     vix_spike_lookback_days: int = 5,
@@ -261,7 +262,7 @@ def build_macro_risk_governor_signal(
     delever_score_threshold: float = 5.0,
     crisis_score_threshold: float = 7.0,
     delever_leverage_scalar: float = 0.0,
-    delever_risk_asset_scalar: float = 1.0,
+    delever_risk_asset_scalar: float = 0.0,
     crisis_leverage_scalar: float = 0.0,
     crisis_risk_asset_scalar: float = 0.0,
 ) -> dict[str, Any]:
@@ -447,12 +448,36 @@ def build_macro_risk_governor_signal(
         threshold=float(pizza_index_watch_level),
         actionable=False,
     )
+    realized_vol_confirmed_for_action = None
+    realized_vol_check = checks.get("benchmark_realized_volatility_high")
+    if realized_vol_check is not None:
+        volatility_active = bool(realized_vol_check.get("active", False))
+        if volatility_active:
+            confirmation_checks = (
+                "vix_watch_level",
+                "vix_crisis_level",
+                "vix_spike",
+                "credit_pair_stress",
+                "hy_oas_watch_level",
+                "hy_oas_widening",
+                "financial_stress_index_high",
+            )
+            realized_vol_confirmed_for_action = any(
+                bool(checks.get(name, {}).get("active", False)) for name in confirmation_checks
+            )
+            if bool(realized_vol_requires_confirmation) and not realized_vol_confirmed_for_action:
+                realized_vol_check["actionable"] = False
+                realized_vol_check["suppression_reason"] = "missing_volatility_stress_confirmation"
+        realized_vol_check["confirmation_required"] = bool(realized_vol_requires_confirmation)
+        realized_vol_check["confirmed_for_action"] = realized_vol_confirmed_for_action
     evidence["metrics"].update(
         {
             "hy_oas": hy_oas,
             "hy_oas_delta_63d": hy_oas_delta,
             "financial_stress": financial_stress,
             "pentagon_pizza_index": pizza_index,
+            "benchmark_realized_volatility_requires_confirmation": bool(realized_vol_requires_confirmation),
+            "benchmark_realized_volatility_confirmed_for_action": realized_vol_confirmed_for_action,
         }
     )
 
@@ -626,11 +651,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-price-age-days", type=int, default=DEFAULT_MAX_PRICE_AGE_DAYS)
     parser.add_argument("--max-external-context-age-days", type=int, default=DEFAULT_MAX_EXTERNAL_CONTEXT_AGE_DAYS)
+    parser.add_argument("--realized-vol-threshold", type=float, default=0.30)
+    parser.add_argument(
+        "--realized-vol-requires-confirmation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require VIX, credit, or financial-stress confirmation before realized volatility contributes to actionable score.",
+    )
     parser.add_argument("--watch-score-threshold", type=float, default=3.0)
     parser.add_argument("--delever-score-threshold", type=float, default=5.0)
     parser.add_argument("--crisis-score-threshold", type=float, default=7.0)
     parser.add_argument("--delever-leverage-scalar", type=float, default=0.0)
-    parser.add_argument("--delever-risk-asset-scalar", type=float, default=1.0)
+    parser.add_argument("--delever-risk-asset-scalar", type=float, default=0.0)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     return parser
 
@@ -663,6 +695,8 @@ def main(argv: list[str] | None = None) -> int:
         credit_pairs=credit_pairs,
         max_price_age_days=args.max_price_age_days,
         max_external_context_age_days=args.max_external_context_age_days,
+        realized_vol_threshold=args.realized_vol_threshold,
+        realized_vol_requires_confirmation=args.realized_vol_requires_confirmation,
         watch_score_threshold=args.watch_score_threshold,
         delever_score_threshold=args.delever_score_threshold,
         crisis_score_threshold=args.crisis_score_threshold,

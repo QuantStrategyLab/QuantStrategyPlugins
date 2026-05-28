@@ -118,6 +118,24 @@ Generated artifacts include `latest_signal.json`, dated JSON, dated CSV, and
 an evidence CSV. `latest_signal.json` is the file platform runtimes mount via
 `*_STRATEGY_PLUGIN_MOUNTS_JSON`.
 
+## Notification and Log i18n
+
+Runner-managed artifacts add display-only i18n fields for notifications and
+logs:
+
+- `localized_messages.schema_version = strategy_plugin_messages.v1`
+- `localized_messages.notification.en-US` / `localized_messages.notification.zh-CN`
+- `localized_messages.log.en-US` / `localized_messages.log.zh-CN`
+- `log_record.schema_version = strategy_plugin_log.v1`
+- `market_regime_control.notification.localized_message_schema_version`
+
+Strategy and broker runtimes should keep trading logic on machine fields such
+as `schema_version`, `canonical_route`, `suggested_action`, `reason_codes`, and
+`position_control`. Localized strings are for human notification surfaces and
+logs only. `market_regime_control.notification` mirrors the localized
+notification text and reason labels so existing notification code can render a
+message without translating route/action codes itself.
+
 ## Local Checks
 
 ```bash

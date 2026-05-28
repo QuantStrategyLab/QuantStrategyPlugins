@@ -9,6 +9,8 @@ enabled = true
 # macro_risk_governor, and taco_rebound_shadow into one deterministic signal.
 # Strategy code consumes only notification and position_control from this
 # artifact; broker writes and live allocation mutation remain disabled.
+# Runner artifacts include en-US/zh-CN localized_messages and log_record for
+# display/logging. Strategy logic should still read machine route/action codes.
 
 [strategy_plugins.inputs]
 prices = "data/output/market_regime_control/input/tqqq_price_history.csv"

@@ -90,6 +90,20 @@ qsp-build-taco-rebound-shadow-signal \
 
 输出包括 `latest_signal.json`、按日期归档的 JSON、按日期归档的 CSV，以及 evidence CSV。平台运行时通过 `*_STRATEGY_PLUGIN_MOUNTS_JSON` 挂载的就是 `latest_signal.json`。
 
+## 通知和日志 i18n
+
+通过 strategy plugin runner 生成的 artifact 会附带展示层 i18n 字段：
+
+- `localized_messages.schema_version = strategy_plugin_messages.v1`
+- `localized_messages.notification.en-US` / `localized_messages.notification.zh-CN`
+- `localized_messages.log.en-US` / `localized_messages.log.zh-CN`
+- `log_record.schema_version = strategy_plugin_log.v1`
+- `market_regime_control.notification.localized_message_schema_version`
+
+策略和券商运行时的交易逻辑仍应只读取 `schema_version`、`canonical_route`、
+`suggested_action`、`reason_codes` 和 `position_control` 等机器字段。中英文文案只用于通知界面和日志展示，不参与策略判断。`market_regime_control.notification`
+会同步包含本地化通知文案和原因标签，方便现有通知代码直接渲染，不需要在策略仓库里重复翻译 route/action code。
+
 ## 本地检查
 
 ```bash

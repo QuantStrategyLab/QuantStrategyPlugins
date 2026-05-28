@@ -39,6 +39,10 @@ PLUGIN_MARKET_REGIME_CONTROL = MARKET_REGIME_CONTROL_PROFILE
 PLUGIN_MACRO_RISK_GOVERNOR = MACRO_RISK_GOVERNOR_PROFILE
 PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
+STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION = "strategy_plugin_messages.v1"
+STRATEGY_PLUGIN_LOG_SCHEMA_VERSION = "strategy_plugin_log.v1"
+DEFAULT_MESSAGE_LOCALE = "en-US"
+SUPPORTED_MESSAGE_LOCALES = ("en-US", "zh-CN")
 EVIDENCE_AUTOMATION_APPROVED = "automation_approved"
 EVIDENCE_NOTIFICATION_ONLY = "notification_only"
 EVIDENCE_DEPRECATED_COMPATIBILITY = "deprecated_compatibility"
@@ -175,6 +179,100 @@ PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
         if policy.plugin == plugin and policy.notification_allowed
     )
     for plugin in sorted({policy.plugin for policy in PLUGIN_CONSUMPTION_POLICIES})
+}
+
+LOCALIZED_ROUTE_LABELS: dict[str, dict[str, str]] = {
+    "blocked": {"en-US": "Blocked", "zh-CN": "已阻断"},
+    "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
+    "delever": {"en-US": "De-lever", "zh-CN": "降杠杆"},
+    "no_action": {"en-US": "No action", "zh-CN": "无动作"},
+    "opportunity_watch": {"en-US": "Opportunity watch", "zh-CN": "机会观察"},
+    "risk_off": {"en-US": "Risk off", "zh-CN": "风险关闭"},
+    "risk_reduced": {"en-US": "Risk reduced", "zh-CN": "风险降低"},
+    "taco_rebound": {"en-US": "TACO rebound", "zh-CN": "TACO 反弹"},
+    "true_crisis": {"en-US": "True crisis", "zh-CN": "真实危机"},
+    "watch": {"en-US": "Watch", "zh-CN": "观察"},
+}
+LOCALIZED_ACTION_LABELS: dict[str, dict[str, str]] = {
+    "blocked": {"en-US": "Blocked", "zh-CN": "已阻断"},
+    "defend": {"en-US": "Defend", "zh-CN": "防守"},
+    "delever": {"en-US": "De-lever", "zh-CN": "降杠杆"},
+    "no_action": {"en-US": "No action", "zh-CN": "无动作"},
+    "notify_manual_review": {"en-US": "Notify manual review", "zh-CN": "通知人工复核"},
+    "watch_only": {"en-US": "Watch only", "zh-CN": "仅观察"},
+}
+LOCALIZED_SOURCE_LABELS: dict[str, dict[str, str]] = {
+    "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
+    "data_quality": {"en-US": "Data quality", "zh-CN": "数据质量"},
+    "macro": {"en-US": "Macro", "zh-CN": "宏观"},
+    "taco": {"en-US": "TACO", "zh-CN": "TACO"},
+}
+LOCALIZED_REASON_LABELS: dict[str, dict[str, str]] = {
+    "aaii_bear_bull_spread_watch": {
+        "en-US": "AAII bearish-bullish spread watch",
+        "zh-CN": "AAII 熊牛差观察",
+    },
+    "advance_decline_drawdown_watch": {
+        "en-US": "Advance-decline drawdown watch",
+        "zh-CN": "涨跌线回撤观察",
+    },
+    "benchmark_below_ma": {"en-US": "Benchmark below moving average", "zh-CN": "基准低于均线"},
+    "benchmark_drawdown_crisis": {"en-US": "Benchmark crisis drawdown", "zh-CN": "基准危机回撤"},
+    "benchmark_drawdown_watch": {"en-US": "Benchmark drawdown watch", "zh-CN": "基准回撤观察"},
+    "benchmark_realized_volatility_high": {
+        "en-US": "High realized volatility",
+        "zh-CN": "实现波动偏高",
+    },
+    "blocked": {"en-US": "Blocked", "zh-CN": "已阻断"},
+    "credit_pair_stress": {"en-US": "Credit-pair stress", "zh-CN": "信用 ETF 相对压力"},
+    "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
+    "delever": {"en-US": "De-lever", "zh-CN": "降杠杆"},
+    "dollar_stress_watch": {"en-US": "Dollar stress watch", "zh-CN": "美元压力观察"},
+    "fear_greed_extreme_fear_watch": {
+        "en-US": "Fear & Greed extreme fear watch",
+        "zh-CN": "恐惧贪婪极度恐惧观察",
+    },
+    "financial_stress_index_high": {
+        "en-US": "Financial stress index high",
+        "zh-CN": "金融压力指数偏高",
+    },
+    "funding_stress_watch": {"en-US": "Funding stress watch", "zh-CN": "资金压力观察"},
+    "hy_oas_watch_level": {"en-US": "High-yield OAS watch", "zh-CN": "高收益 OAS 观察"},
+    "hy_oas_widening": {"en-US": "High-yield OAS widening", "zh-CN": "高收益 OAS 扩张"},
+    "ig_oas_watch_level": {"en-US": "Investment-grade OAS watch", "zh-CN": "投资级 OAS 观察"},
+    "ig_oas_widening_watch": {"en-US": "Investment-grade OAS widening watch", "zh-CN": "投资级 OAS 扩张观察"},
+    "market_breadth_pct_above_50d_watch": {
+        "en-US": "50-day market breadth watch",
+        "zh-CN": "50 日市场宽度观察",
+    },
+    "market_breadth_pct_above_200d_watch": {
+        "en-US": "200-day market breadth watch",
+        "zh-CN": "200 日市场宽度观察",
+    },
+    "move_high_watch": {"en-US": "MOVE high watch", "zh-CN": "MOVE 偏高观察"},
+    "naaim_exposure_low_watch": {"en-US": "NAAIM low exposure watch", "zh-CN": "NAAIM 低仓位观察"},
+    "new_high_new_low_spread_watch": {
+        "en-US": "New-high/new-low spread watch",
+        "zh-CN": "新高新低差观察",
+    },
+    "pentagon_pizza_watch": {"en-US": "Pentagon pizza index watch", "zh-CN": "五角大楼比萨指数观察"},
+    "put_call_stress_watch": {"en-US": "Put/call stress watch", "zh-CN": "Put/call 压力观察"},
+    "safe_haven_demand_watch": {"en-US": "Safe-haven demand watch", "zh-CN": "避险需求观察"},
+    "skew_high_watch": {"en-US": "SKEW high watch", "zh-CN": "SKEW 偏高观察"},
+    "taco_rebound": {"en-US": "TACO rebound context", "zh-CN": "TACO 反弹上下文"},
+    "true_crisis": {"en-US": "True crisis", "zh-CN": "真实危机"},
+    "vix_crisis_level": {"en-US": "VIX crisis level", "zh-CN": "VIX 危机水平"},
+    "vix_spike": {"en-US": "VIX spike", "zh-CN": "VIX 尖峰"},
+    "vix_term_structure_inverted_watch": {
+        "en-US": "VIX term-structure inversion watch",
+        "zh-CN": "VIX 期限结构倒挂观察",
+    },
+    "vix_watch_level": {"en-US": "VIX watch level", "zh-CN": "VIX 观察水平"},
+    "vvix_high_watch": {"en-US": "VVIX high watch", "zh-CN": "VVIX 偏高观察"},
+    "yield_curve_inversion_watch": {
+        "en-US": "Yield-curve inversion watch",
+        "zh-CN": "收益率曲线倒挂观察",
+    },
 }
 
 
@@ -514,6 +612,233 @@ def _mode_execution_controls(mode: str) -> dict[str, Any]:
         raise ValueError(f"unsupported plugin mode: {mode!r}") from exc
 
 
+def _payload_code(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _localized_label(labels: Mapping[str, Mapping[str, str]], code: Any, locale: str) -> str:
+    normalized = _payload_code(code)
+    if not normalized:
+        return ""
+    localized = labels.get(normalized, {})
+    if locale in localized:
+        return localized[locale]
+    if DEFAULT_MESSAGE_LOCALE in localized:
+        return localized[DEFAULT_MESSAGE_LOCALE]
+    return normalized if locale == "zh-CN" else normalized.replace("_", " ")
+
+
+def _message_join(values: Sequence[str], locale: str) -> str:
+    cleaned = [str(value).strip() for value in values if str(value).strip()]
+    if not cleaned:
+        return "无" if locale == "zh-CN" else "none"
+    return "、".join(cleaned) if locale == "zh-CN" else ", ".join(cleaned)
+
+
+def _message_reason_codes(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return ()
+
+
+def _nested_mapping(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = payload.get(key)
+    return value if isinstance(value, Mapping) else {}
+
+
+def _payload_route(payload: Mapping[str, Any]) -> str:
+    arbiter = _nested_mapping(payload, "arbiter")
+    return _payload_code(payload.get("canonical_route") or payload.get("route") or arbiter.get("final_route"))
+
+
+def _payload_action(payload: Mapping[str, Any]) -> str:
+    arbiter = _nested_mapping(payload, "arbiter")
+    return _payload_code(payload.get("suggested_action") or payload.get("action") or arbiter.get("suggested_action"))
+
+
+def _payload_reason_codes(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    reason_codes: list[str] = []
+    for container in (
+        payload,
+        _nested_mapping(payload, "arbiter"),
+        _nested_mapping(payload, "notification"),
+        _nested_mapping(payload, "position_control"),
+    ):
+        reason_codes.extend(_message_reason_codes(container.get("reason_codes")))
+    if not reason_codes:
+        route = _payload_route(payload)
+        if route and route != "no_action":
+            reason_codes.append(route)
+    return tuple(dict.fromkeys(reason_codes))
+
+
+def _localized_reason_label(reason_code: str, locale: str) -> str:
+    source, separator, raw_code = str(reason_code).partition(":")
+    if separator:
+        source_label = _localized_label(LOCALIZED_SOURCE_LABELS, source, locale)
+        reason_label = _localized_label(LOCALIZED_REASON_LABELS, raw_code, locale)
+        separator_text = "：" if locale == "zh-CN" else ": "
+        return f"{source_label}{separator_text}{reason_label}"
+    return _localized_label(LOCALIZED_REASON_LABELS, source, locale)
+
+
+def _localized_reason_labels(reason_codes: Sequence[str], locale: str) -> tuple[str, ...]:
+    return tuple(_localized_reason_label(reason_code, locale) for reason_code in reason_codes)
+
+
+def _payload_should_notify(payload: Mapping[str, Any], route: str) -> bool:
+    notification = _nested_mapping(payload, "notification")
+    if "should_notify" in notification:
+        return _as_bool(notification.get("should_notify"), default=False)
+    if "manual_review_required" in payload:
+        return _as_bool(payload.get("manual_review_required"), default=False) or route != "no_action"
+    return route != "no_action"
+
+
+def _format_notification_message(
+    *,
+    locale: str,
+    strategy: str,
+    plugin: str,
+    as_of: str,
+    route_label: str,
+    action_label: str,
+    reason_labels: Sequence[str],
+    should_notify: bool,
+) -> str:
+    reason_text = _message_join(reason_labels, locale)
+    if locale == "zh-CN":
+        prefix = "需要通知" if should_notify else "无需通知"
+        return (
+            f"{prefix}：策略 {strategy} 的 {plugin} 在 {as_of or '未知日期'} 输出"
+            f"市场状态 {route_label}，建议动作 {action_label}，原因：{reason_text}。"
+        )
+    prefix = "Notification required" if should_notify else "No notification required"
+    return (
+        f"{prefix}: {plugin} for strategy {strategy} produced market regime {route_label} "
+        f"on {as_of or 'unknown date'} with suggested action {action_label}. Reasons: {reason_text}."
+    )
+
+
+def _format_log_message(
+    *,
+    locale: str,
+    strategy: str,
+    plugin: str,
+    as_of: str,
+    route: str,
+    action: str,
+    route_label: str,
+    action_label: str,
+    reason_codes: Sequence[str],
+    reason_labels: Sequence[str],
+) -> str:
+    code_text = _message_join(reason_codes, "en-US")
+    label_text = _message_join(reason_labels, locale)
+    if locale == "zh-CN":
+        return (
+            f"策略={strategy} 插件={plugin} 日期={as_of or '未知'} 路线={route}({route_label}) "
+            f"动作={action}({action_label}) 原因码={code_text} 原因={label_text}"
+        )
+    return (
+        f"strategy={strategy} plugin={plugin} as_of={as_of or 'unknown'} route={route}({route_label}) "
+        f"action={action}({action_label}) reason_codes={code_text} reasons={label_text}"
+    )
+
+
+def _build_localized_messages(
+    payload: Mapping[str, Any],
+    *,
+    strategy: str,
+    plugin: str,
+) -> dict[str, Any]:
+    route = _payload_route(payload) or "unknown"
+    action = _payload_action(payload) or "unknown"
+    reason_codes = _payload_reason_codes(payload)
+    as_of = str(payload.get("as_of") or "").strip()
+    should_notify = _payload_should_notify(payload, route)
+
+    route_labels = {
+        locale: _localized_label(LOCALIZED_ROUTE_LABELS, route, locale) for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    action_labels = {
+        locale: _localized_label(LOCALIZED_ACTION_LABELS, action, locale) for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    reason_labels = {
+        locale: list(_localized_reason_labels(reason_codes, locale)) for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    notification_messages = {
+        locale: _format_notification_message(
+            locale=locale,
+            strategy=strategy,
+            plugin=plugin,
+            as_of=as_of,
+            route_label=route_labels[locale],
+            action_label=action_labels[locale],
+            reason_labels=reason_labels[locale],
+            should_notify=should_notify,
+        )
+        for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    log_messages = {
+        locale: _format_log_message(
+            locale=locale,
+            strategy=strategy,
+            plugin=plugin,
+            as_of=as_of,
+            route=route,
+            action=action,
+            route_label=route_labels[locale],
+            action_label=action_labels[locale],
+            reason_codes=reason_codes,
+            reason_labels=reason_labels[locale],
+        )
+        for locale in SUPPORTED_MESSAGE_LOCALES
+    }
+    return {
+        "schema_version": STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION,
+        "default_locale": DEFAULT_MESSAGE_LOCALE,
+        "supported_locales": list(SUPPORTED_MESSAGE_LOCALES),
+        "labels": {
+            "canonical_route": route_labels,
+            "suggested_action": action_labels,
+            "reason_codes": reason_labels,
+        },
+        "notification": notification_messages,
+        "log": log_messages,
+    }
+
+
+def _build_log_record(
+    payload: Mapping[str, Any],
+    *,
+    strategy: str,
+    plugin: str,
+    mode: str,
+    localized_messages: Mapping[str, Any],
+) -> dict[str, Any]:
+    reason_codes = _payload_reason_codes(payload)
+    execution_controls = _nested_mapping(payload, "execution_controls")
+    return {
+        "schema_version": STRATEGY_PLUGIN_LOG_SCHEMA_VERSION,
+        "event": "strategy_plugin_signal",
+        "namespace": str(execution_controls.get("log_namespace") or plugin),
+        "strategy": strategy,
+        "plugin": plugin,
+        "mode": mode,
+        "as_of": str(payload.get("as_of") or "").strip(),
+        "canonical_route": _payload_route(payload),
+        "suggested_action": _payload_action(payload),
+        "reason_codes": list(reason_codes),
+        "default_locale": DEFAULT_MESSAGE_LOCALE,
+        "localized_messages": dict(localized_messages.get("log", {})),
+    }
+
+
 def _apply_plugin_contract(
     payload: Mapping[str, Any],
     *,
@@ -549,7 +874,33 @@ def _apply_plugin_contract(
     execution_controls["mode_note"] = (
         "Mode is the platform behavior contract; this repository writes artifacts and does not call brokers"
     )
+    execution_controls["message_i18n_schema_version"] = STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION
+    execution_controls["log_schema_version"] = STRATEGY_PLUGIN_LOG_SCHEMA_VERSION
+    execution_controls["default_locale"] = DEFAULT_MESSAGE_LOCALE
+    execution_controls["supported_locales"] = list(SUPPORTED_MESSAGE_LOCALES)
     contracted_payload["execution_controls"] = execution_controls
+    localized_messages = _build_localized_messages(
+        contracted_payload,
+        strategy=strategy,
+        plugin=plugin,
+    )
+    contracted_payload["localized_messages"] = localized_messages
+    contracted_payload["log_record"] = _build_log_record(
+        contracted_payload,
+        strategy=strategy,
+        plugin=plugin,
+        mode=mode,
+        localized_messages=localized_messages,
+    )
+    notification = contracted_payload.get("notification")
+    if isinstance(notification, Mapping):
+        localized_notification = dict(notification)
+        localized_notification["localized_message_schema_version"] = STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION
+        localized_notification["default_locale"] = DEFAULT_MESSAGE_LOCALE
+        localized_notification["supported_locales"] = list(SUPPORTED_MESSAGE_LOCALES)
+        localized_notification["localized_messages"] = dict(localized_messages["notification"])
+        localized_notification["localized_reason_labels"] = dict(localized_messages["labels"]["reason_codes"])
+        contracted_payload["notification"] = localized_notification
     return contracted_payload
 
 
@@ -791,6 +1142,8 @@ __all__ = [
     "PLUGIN_DEPRECATED_SUCCESSORS",
     "PLUGIN_RESEARCH_ONLY_REASONS",
     "PLUGIN_SCHEMA_VERSIONS",
+    "STRATEGY_PLUGIN_LOG_SCHEMA_VERSION",
+    "STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION",
     "PluginConsumptionPolicy",
     "PluginRunResult",
     "load_plugin_config",

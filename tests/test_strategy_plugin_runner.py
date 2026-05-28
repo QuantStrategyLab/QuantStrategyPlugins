@@ -19,6 +19,8 @@ from quant_strategy_plugins.strategy_plugin_runner import (
     PLUGIN_MACRO_RISK_GOVERNOR,
     PLUGIN_SCHEMA_VERSIONS,
     PLUGIN_TACO_REBOUND_SHADOW,
+    STRATEGY_PLUGIN_LOG_SCHEMA_VERSION,
+    STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION,
     load_plugin_config,
     main,
     run_configured_plugins,
@@ -184,6 +186,11 @@ def test_strategy_plugin_runner_executes_strategy_scoped_shadow_plugin(tmp_path)
     assert payload["execution_controls"]["repository_broker_write_allowed"] is False
     assert payload["execution_controls"]["repository_allocation_mutation_allowed"] is False
     assert "platform behavior contract" in payload["execution_controls"]["mode_note"]
+    assert payload["localized_messages"]["schema_version"] == STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION
+    assert "No notification required" in payload["localized_messages"]["notification"]["en-US"]
+    assert "无需通知" in payload["localized_messages"]["notification"]["zh-CN"]
+    assert payload["log_record"]["schema_version"] == STRATEGY_PLUGIN_LOG_SCHEMA_VERSION
+    assert "策略=" in payload["log_record"]["localized_messages"]["zh-CN"]
 
 
 def test_strategy_plugin_runner_runs_macro_risk_governor_for_tqqq(tmp_path) -> None:
@@ -223,6 +230,9 @@ def test_strategy_plugin_runner_runs_macro_risk_governor_for_tqqq(tmp_path) -> N
     assert payload["canonical_route"] == "delever"
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
+    assert payload["localized_messages"]["labels"]["canonical_route"]["zh-CN"] == "降杠杆"
+    assert payload["localized_messages"]["labels"]["suggested_action"]["en-US"] == "De-lever"
+    assert "VIX 危机水平" in payload["localized_messages"]["notification"]["zh-CN"]
 
 
 def test_strategy_plugin_runner_keeps_external_stress_watch_only_unless_opted_in(tmp_path) -> None:
@@ -328,6 +338,12 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["consumption_policy"]["position_control_allowed"] is True
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
+    assert payload["localized_messages"]["labels"]["canonical_route"]["en-US"] == "Risk reduced"
+    assert payload["localized_messages"]["labels"]["suggested_action"]["zh-CN"] == "降杠杆"
+    assert payload["notification"]["localized_message_schema_version"] == STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION
+    assert "风险降低" in payload["notification"]["localized_messages"]["zh-CN"]
+    assert "宏观：VIX 危机水平" in payload["notification"]["localized_reason_labels"]["zh-CN"]
+    assert payload["log_record"]["canonical_route"] == "risk_reduced"
 
 
 def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path) -> None:
@@ -372,6 +388,8 @@ def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path
     assert payload["execution_controls"]["position_control_allowed"] is False
     assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
     assert payload["consumption_policy"]["strategy"] == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY
+    assert payload["notification"]["localized_messages"]["en-US"].startswith("No notification required")
+    assert payload["log_record"]["localized_messages"]["zh-CN"]
 
 
 def test_strategy_plugin_runner_rejects_soxl_market_regime_control_mount(tmp_path) -> None:

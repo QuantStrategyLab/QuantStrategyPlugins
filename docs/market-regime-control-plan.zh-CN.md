@@ -1,5 +1,7 @@
 # Market Regime Control 统一插件方案
 
+[English](./market-regime-control-plan.md)
+
 本文档记录 `market_regime_control` 的当前设计边界、信号优先级、策略消费方式和回测结论。
 
 ## 目标

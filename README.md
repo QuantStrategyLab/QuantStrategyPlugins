@@ -46,7 +46,8 @@ send notifications; plugin research and signal generation live here.
   position controls for automated consumption; SOXL/SOXX currently receives
   broad macro/crisis signals as general notifications only. Stock/ETF rotation
   strategies should consume the same artifact through their local risk-scaling
-  policy and keep TACO as notification-only.
+  policy and keep TACO as notification-only. See the
+  [Market Regime Control design plan](docs/market-regime-control-plan.md).
 - `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
   manual-review artifacts and never recommends position size or changes
   allocations. Softening/de-escalation events stay watch-only until post-event

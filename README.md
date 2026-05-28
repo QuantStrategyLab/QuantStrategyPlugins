@@ -44,9 +44,9 @@ send notifications; plugin research and signal generation live here.
 - `market_regime_control`: unified deterministic facade for crisis, macro, and
   TACO signals. Only strategies with positive backtest evidence should mount
   position controls for automated consumption; SOXL/SOXX currently receives
-  broad macro/crisis signals as general notifications only. Stock/ETF rotation
-  strategies should consume the same artifact through their local risk-scaling
-  policy and keep TACO as notification-only. See the
+  broad macro/crisis signals through `notification_targets` only. Stock/ETF
+  rotation strategies should consume the same artifact through their local
+  risk-scaling policy and keep TACO as notification-only. See the
   [Market Regime Control design plan](docs/market-regime-control-plan.md).
 - `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
   manual-review artifacts and never recommends position size or changes
@@ -136,6 +136,8 @@ as `schema_version`, `canonical_route`, `suggested_action`, `reason_codes`, and
 logs only. `market_regime_control.notification` mirrors the localized
 notification text and reason labels so existing notification code can render a
 message without translating route/action codes itself.
+General notification targets are configured under `notification_targets`, not as
+synthetic strategies, and never receive position-control permission.
 
 ## Local Checks
 

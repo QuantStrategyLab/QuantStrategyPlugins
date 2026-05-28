@@ -41,15 +41,15 @@ taco_enabled = true
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/market_regime_control"
 
-[[strategy_plugins]]
-strategy = "market_regime_notification"
+[[notification_targets]]
+notification_target = "market_regime_notification"
 plugin = "market_regime_control"
 enabled = true
 # General market-regime notification. This artifact is not mounted into the
 # SOXL/SOXX strategy runtime; sector-levered SOXL keeps its own validated SOXX
 # volatility gate and humans decide whether broad macro/crisis notices matter.
 
-[strategy_plugins.inputs]
+[notification_targets.inputs]
 prices = "data/output/market_regime_control/input/soxl_price_history.csv"
 external_context = "data/output/market_regime_control/input/external_context.csv"
 event_set = "full"
@@ -69,7 +69,7 @@ taco_enabled = false
 crisis_enabled = true
 macro_enabled = true
 
-[strategy_plugins.outputs]
+[notification_targets.outputs]
 output_dir = "data/output/market_regime_notification/plugins/market_regime_control"
 
 # Deprecated compatibility mounts. They remain runnable for historical

@@ -10,12 +10,14 @@ from quant_strategy_plugins.crisis_response_research import ROUTE_TRUE_CRISIS
 from quant_strategy_plugins.strategy_plugin_runner import (
     EVIDENCE_AUTOMATION_APPROVED,
     EVIDENCE_NOTIFICATION_ONLY,
-    GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
+    GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+    PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS,
     PLUGIN_COMPATIBLE_STRATEGIES,
     PLUGIN_CONSUMPTION_POLICY_REGISTRY,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
     PLUGIN_DEPRECATED_SUCCESSORS,
     PLUGIN_MARKET_REGIME_CONTROL,
+    PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY,
     PLUGIN_MACRO_RISK_GOVERNOR,
     PLUGIN_SCHEMA_VERSIONS,
     PLUGIN_TACO_REBOUND_SHADOW,
@@ -348,14 +350,14 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
 
 def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path) -> None:
     prices_path = tmp_path / "market_regime_prices.csv"
-    output_dir = tmp_path / GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
+    output_dir = tmp_path / GENERAL_MARKET_REGIME_NOTIFICATION_TARGET / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
     _soxl_quiet_prices().to_csv(prices_path, index=False)
     config = {
         "output_dir": str(tmp_path / "runner"),
         "default_mode": "shadow",
-        "strategy_plugins": [
+        "notification_targets": [
             {
-                "strategy": GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
+                "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
                 "plugin": PLUGIN_MARKET_REGIME_CONTROL,
                 "enabled": True,
                 "inputs": {
@@ -374,12 +376,17 @@ def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path
 
     summary = run_configured_plugins(config)
 
-    result = summary["strategy_plugins"][0]
-    assert result["strategy"] == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY
+    assert summary["strategy_plugins"] == []
+    result = summary["notification_targets"][0]
+    assert result["strategy"] == ""
+    assert result["target_type"] == "notification_target"
+    assert result["notification_target"] == GENERAL_MARKET_REGIME_NOTIFICATION_TARGET
     assert result["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert result["status"] == "ok"
     payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
-    assert payload["strategy"] == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY
+    assert "strategy" not in payload
+    assert payload["target_type"] == "notification_target"
+    assert payload["notification_target"] == GENERAL_MARKET_REGIME_NOTIFICATION_TARGET
     assert payload["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert payload["schema_version"] in PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL]
     assert payload["canonical_route"] == "no_action"
@@ -387,8 +394,9 @@ def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
     assert payload["execution_controls"]["position_control_allowed"] is False
     assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
-    assert payload["consumption_policy"]["strategy"] == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY
+    assert payload["notification_target_policy"]["notification_target"] == GENERAL_MARKET_REGIME_NOTIFICATION_TARGET
     assert payload["notification"]["localized_messages"]["en-US"].startswith("No notification required")
+    assert "notification target" in payload["notification"]["localized_messages"]["en-US"]
     assert payload["log_record"]["localized_messages"]["zh-CN"]
 
 
@@ -414,12 +422,14 @@ def test_strategy_plugin_runner_rejects_soxl_market_regime_control_mount(tmp_pat
 
 def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> None:
     assert set(PLUGIN_COMPATIBLE_STRATEGIES[PLUGIN_MARKET_REGIME_CONTROL]) == {
-        GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
         STRATEGY_NAME,
         "global_etf_rotation",
         "russell_1000_multi_factor_defensive",
         "tech_communication_pullback_enhancement",
         "mega_cap_leader_rotation_top50_balanced",
+    }
+    assert set(PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS[PLUGIN_MARKET_REGIME_CONTROL]) == {
+        GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     }
     assert PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL] == ("market_regime_control.v1",)
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_CRISIS_RESPONSE_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
@@ -429,8 +439,8 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
         PLUGIN_MARKET_REGIME_CONTROL,
         SOXL_STRATEGY_NAME,
     ) not in PLUGIN_CONSUMPTION_POLICY_REGISTRY
-    assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
-        (PLUGIN_MARKET_REGIME_CONTROL, GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY)
+    assert PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY[
+        (PLUGIN_MARKET_REGIME_CONTROL, GENERAL_MARKET_REGIME_NOTIFICATION_TARGET)
     ].position_control_allowed is False
     assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
         (PLUGIN_MARKET_REGIME_CONTROL, STRATEGY_NAME)
@@ -809,4 +819,9 @@ def test_strategy_plugin_runner_example_config_uses_default_mode_without_duplica
     assert config["strategy_plugins"][0]["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert config["strategy_plugins"][0]["outputs"]["output_dir"].endswith(
         "tqqq_growth_income/plugins/market_regime_control"
+    )
+    assert config["notification_targets"][0]["notification_target"] == GENERAL_MARKET_REGIME_NOTIFICATION_TARGET
+    assert "strategy" not in config["notification_targets"][0]
+    assert config["notification_targets"][0]["outputs"]["output_dir"].endswith(
+        "market_regime_notification/plugins/market_regime_control"
     )

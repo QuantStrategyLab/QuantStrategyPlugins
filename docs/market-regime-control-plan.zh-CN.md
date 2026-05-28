@@ -82,7 +82,10 @@
 - `evidence_status`：记录该策略/插件组合是 `automation_approved`、`notification_only` 还是 `deprecated_compatibility`。
 - `since_version`：记录该消费权限从哪个 runner schema 开始生效。
 
-SOXL/SOXX 不出现在 `market_regime_control` 的策略级消费 registry 中；它通过 `market_regime_notification` 接收通用通知，避免配置误用把通知信号升级成自动调仓。
+SOXL/SOXX 不出现在 `market_regime_control` 的策略级消费 registry 中；它通过
+`notification_targets.market_regime_notification` 接收通用通知。通用通知不是
+strategy，不允许进入策略 runtime metadata，也不能影响仓位，避免配置误用把通知
+信号升级成自动调仓。
 
 当前观察指标分层：
 

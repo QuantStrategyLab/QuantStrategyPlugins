@@ -131,8 +131,10 @@ allowlist:
 
 SOXL/SOXX is not in the strategy-level `market_regime_control` consumption
 registry. It receives broad market-regime context through the general
-`market_regime_notification` artifact to prevent accidental promotion from
-notification into automated de-risking.
+`notification_targets.market_regime_notification` artifact. That notification
+target is not a strategy, cannot enter strategy runtime metadata, and cannot
+affect position sizing; this prevents accidental promotion from notification
+into automated de-risking.
 
 ## Indicator Tiers
 

@@ -169,6 +169,14 @@ def _build_crisis_response_kwargs(plugin_config: Mapping[str, Any]) -> dict[str,
         "market_symbol",
         "synthetic_attack_from",
         "external_valuation_mode",
+        "ai_audit_base_url",
+        "ai_audit_model",
+        "ai_audit_fallback_base_url",
+        "ai_audit_fallback_model",
+        "ai_audit_codex_model",
+        "ai_audit_anthropic_base_url",
+        "ai_audit_anthropic_model",
+        "ai_audit_anthropic_version",
     }
     numeric_keys = {
         "synthetic_attack_multiple",
@@ -189,6 +197,7 @@ def _build_crisis_response_kwargs(plugin_config: Mapping[str, Any]) -> dict[str,
         "external_negative_earnings_share_threshold",
         "external_earnings_revision_3m_threshold",
         "external_margin_revision_3m_threshold",
+        "ai_audit_timeout_seconds",
     }
     integer_keys = {
         "crisis_confirm_days",
@@ -207,6 +216,9 @@ def _build_crisis_response_kwargs(plugin_config: Mapping[str, Any]) -> dict[str,
     for key in integer_keys:
         if key in plugin_config and plugin_config[key] is not None:
             kwargs[key] = int(plugin_config[key])
+    for key in ("ai_audit_enabled", "ai_audit_codex_enabled"):
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = _as_bool(plugin_config[key])
     if "financial_symbols" in plugin_config:
         kwargs["financial_symbols"] = _as_str_tuple(plugin_config["financial_symbols"])
     if "rate_symbols" in plugin_config:
@@ -224,12 +236,21 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
         "end_date",
         "benchmark_symbol",
         "attack_symbol",
+        "ai_audit_base_url",
+        "ai_audit_model",
+        "ai_audit_fallback_base_url",
+        "ai_audit_fallback_model",
+        "ai_audit_codex_model",
+        "ai_audit_anthropic_base_url",
+        "ai_audit_anthropic_model",
+        "ai_audit_anthropic_version",
     }
     numeric_keys = {
         "crisis_guard_drawdown",
         "min_benchmark_rebound_from_low",
         "min_attack_rebound_from_low",
         "min_benchmark_3d_return",
+        "ai_audit_timeout_seconds",
     }
     integer_keys = {
         "active_signal_days",
@@ -239,7 +260,12 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
         "confirmation_lookback_days",
         "min_confirmation_trading_days_after_event",
     }
-    bool_keys = {"suppress_when_price_crisis_guard_active", "require_rebound_confirmation"}
+    bool_keys = {
+        "suppress_when_price_crisis_guard_active",
+        "require_rebound_confirmation",
+        "ai_audit_enabled",
+        "ai_audit_codex_enabled",
+    }
     for key in string_keys:
         if key in plugin_config and plugin_config[key] is not None:
             kwargs[key] = str(plugin_config[key]).strip()

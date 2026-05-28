@@ -61,6 +61,114 @@ def test_taco_rebound_shadow_routes_geopolitical_deescalation_to_manual_review_n
     assert payload["execution_controls"]["position_sizing_allowed"] is False
     assert payload["execution_controls"]["allocation_recommendation_allowed"] is False
     assert payload["execution_controls"]["hard_defense_override_signal_allowed"] is False
+    assert payload["event_quality"]["quality_score"] == 1.0
+    assert payload["event_quality"]["checks"]["selected_event_is_softening"] is True
+    assert payload["event_quality"]["checks"]["rebound_confirmation_satisfied"] is True
+
+
+def test_taco_rebound_shadow_ai_audit_uses_fallback_without_changing_route() -> None:
+    prices = _panic_rebound_prices()
+    dates = pd.bdate_range("2026-03-20", periods=12)
+    event = TradeWarEvent(
+        event_id="iran-ceasefire",
+        event_date=str(dates[4].date()),
+        kind=EVENT_KIND_SOFTENING,
+        region="iran_middle_east",
+        title="Ceasefire talks",
+        source="test",
+        source_url="https://example.test/ceasefire",
+    )
+    calls: list[str] = []
+
+    def fake_completion(endpoint, messages, timeout_seconds):
+        calls.append(endpoint.name)
+        assert timeout_seconds == 6.0
+        assert messages[0]["role"] == "system"
+        assert "TACO rebound plugin" in messages[0]["content"]
+        if endpoint.name == "primary":
+            raise RuntimeError("primary unavailable")
+        return {
+            "verdict": "agree",
+            "route_assessment": "event_rebound_context_supported",
+            "confidence": 0.78,
+            "summary": "Event source and rebound confirmation support the deterministic manual-review route.",
+            "key_risks": ["headline-driven event context can reverse"],
+            "data_gaps": [],
+            "human_review_recommended": True,
+        }
+
+    payload = build_taco_rebound_shadow_signal(
+        prices,
+        events=(event,),
+        as_of=str(dates[6].date()),
+        start_date=str(dates[0].date()),
+        ai_audit_enabled=True,
+        ai_audit_api_key="sk-primary",
+        ai_audit_base_url="https://primary.example/v1",
+        ai_audit_model="primary-model",
+        ai_audit_fallback_api_key="sk-fallback",
+        ai_audit_fallback_base_url="https://fallback.example/v1",
+        ai_audit_fallback_model="fallback-model",
+        ai_audit_codex_enabled=False,
+        ai_audit_timeout_seconds=6.0,
+        ai_audit_completion_client=fake_completion,
+    )
+
+    assert payload["canonical_route"] == ROUTE_TACO_REBOUND
+    assert payload["suggested_action"] == ACTION_NOTIFY_MANUAL_REVIEW
+    assert payload["execution_controls"]["ai_audit_shadow_only"] is True
+    assert calls == ["primary", "fallback"]
+    audit = payload["ai_audit"]
+    assert audit["status"] == "ok"
+    assert audit["audit_kind"] == "taco_rebound_shadow"
+    assert audit["selected_endpoint"]["name"] == "fallback"
+    assert audit["selected_endpoint"]["model"] == "fallback-model"
+    assert audit["verdict"] == "agree"
+    assert audit["final_route_unchanged"] is True
+    assert audit["deterministic_route"] == ROUTE_TACO_REBOUND
+    assert audit["attempts"][0]["status"] == "failed"
+    assert audit["attempts"][1]["status"] == "ok"
+
+
+def test_taco_rebound_shadow_ai_audit_skips_without_api_key(monkeypatch) -> None:
+    for key in (
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_API_KEY",
+        "OPENAI_API_KEY",
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_FALLBACK_API_KEY",
+        "OPENAI_FALLBACK_API_KEY",
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    prices = _panic_rebound_prices()
+    dates = pd.bdate_range("2026-03-20", periods=12)
+    event = TradeWarEvent(
+        event_id="iran-ceasefire",
+        event_date=str(dates[4].date()),
+        kind=EVENT_KIND_SOFTENING,
+        region="iran_middle_east",
+        title="Ceasefire talks",
+        source="test",
+        source_url="https://example.test/ceasefire",
+    )
+
+    payload = build_taco_rebound_shadow_signal(
+        prices,
+        events=(event,),
+        as_of=str(dates[6].date()),
+        start_date=str(dates[0].date()),
+        ai_audit_enabled=True,
+        ai_audit_codex_enabled=False,
+    )
+
+    assert payload["canonical_route"] == ROUTE_TACO_REBOUND
+    assert payload["ai_audit"]["status"] == "skipped"
+    assert payload["ai_audit"]["skip_reason"] == "missing_api_endpoint"
+    assert payload["ai_audit"]["final_route_unchanged"] is True
 
 
 def test_taco_rebound_shadow_waits_for_rebound_confirmation_before_manual_review() -> None:
@@ -91,6 +199,7 @@ def test_taco_rebound_shadow_waits_for_rebound_confirmation_before_manual_review
     assert payload["rebound_confirmation"]["confirmed"] is False
     assert payload["suppression_reason"] == "rebound confirmation pending"
     assert "post-event trading confirmation" in payload["rebound_confirmation"]["reason"]
+    assert payload["event_quality"]["checks"]["rebound_confirmation_satisfied"] is False
 
 
 def test_taco_rebound_shadow_writes_artifacts(tmp_path) -> None:

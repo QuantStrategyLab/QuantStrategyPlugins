@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
+from .ai_audit import DEFAULT_AI_AUDIT_TIMEOUT_SECONDS, run_taco_ai_audit
 from .artifacts import write_json
 from .plugin_signal_utils import bool_at, flatten_for_csv, json_scalar, normalize_close, resolve_signal_date
 from .russell_1000_multi_factor_defensive_snapshot import read_table
@@ -172,6 +173,60 @@ def _build_rebound_confirmation(
     }
 
 
+def _score_checks(checks: Mapping[str, bool]) -> float:
+    if not checks:
+        return 0.0
+    return sum(1.0 for value in checks.values() if bool(value)) / float(len(checks))
+
+
+def _build_event_quality(
+    *,
+    kill_reasons: Sequence[str],
+    selected_event: TradeWarEvent | None,
+    recognized_events: Sequence[TradeWarEvent],
+    require_rebound_confirmation: bool,
+    rebound_confirmation: Mapping[str, Any],
+    crisis_guard_active: bool,
+) -> dict[str, Any]:
+    recognized_event_ids = {event.event_id for event in recognized_events}
+    selected_event_is_softening = bool(selected_event is not None and selected_event.kind == EVENT_KIND_SOFTENING)
+    rebound_confirmation_satisfied = bool(rebound_confirmation.get("confirmed")) or not bool(
+        require_rebound_confirmation
+    )
+    checks = {
+        "price_data_usable": not bool(kill_reasons),
+        "selected_event_present": selected_event is not None,
+        "selected_event_is_softening": selected_event_is_softening,
+        "selected_event_has_source_url": bool(selected_event is not None and selected_event.source_url),
+        "selected_event_passed_price_stress_filter": bool(
+            selected_event is not None and selected_event.event_id in recognized_event_ids
+        ),
+        "rebound_confirmation_satisfied": rebound_confirmation_satisfied,
+        "price_crisis_guard_clear": not bool(crisis_guard_active),
+    }
+    warnings = list(kill_reasons)
+    if selected_event is None:
+        warnings.append("no active recognized softening/de-escalation event")
+    elif not selected_event_is_softening:
+        warnings.append("selected event is not a softening/de-escalation event")
+    if selected_event is not None and not selected_event.source_url:
+        warnings.append("selected event source_url missing")
+    if bool(require_rebound_confirmation) and not bool(rebound_confirmation.get("confirmed")):
+        reason = str(rebound_confirmation.get("reason") or "rebound confirmation pending")
+        warnings.append(reason)
+    if crisis_guard_active:
+        warnings.append("price crisis guard active")
+    quality_score = _score_checks(checks)
+    if kill_reasons or crisis_guard_active:
+        quality_score = min(quality_score, 0.5)
+    return {
+        "schema_version": "deterministic_event_quality.v1",
+        "quality_score": round(float(quality_score), 4),
+        "checks": checks,
+        "warnings": warnings,
+    }
+
+
 def build_taco_rebound_shadow_signal(
     price_history,
     *,
@@ -193,6 +248,21 @@ def build_taco_rebound_shadow_signal(
     min_benchmark_rebound_from_low: float = DEFAULT_MIN_BENCHMARK_REBOUND_FROM_LOW,
     min_attack_rebound_from_low: float = DEFAULT_MIN_ATTACK_REBOUND_FROM_LOW,
     min_benchmark_3d_return: float = DEFAULT_MIN_BENCHMARK_3D_RETURN,
+    ai_audit_enabled: bool = False,
+    ai_audit_api_key: str | None = None,
+    ai_audit_base_url: str | None = None,
+    ai_audit_model: str | None = None,
+    ai_audit_fallback_api_key: str | None = None,
+    ai_audit_fallback_base_url: str | None = None,
+    ai_audit_fallback_model: str | None = None,
+    ai_audit_codex_enabled: bool | None = None,
+    ai_audit_codex_model: str | None = None,
+    ai_audit_anthropic_api_key: str | None = None,
+    ai_audit_anthropic_base_url: str | None = None,
+    ai_audit_anthropic_model: str | None = None,
+    ai_audit_anthropic_version: str | None = None,
+    ai_audit_timeout_seconds: float = DEFAULT_AI_AUDIT_TIMEOUT_SECONDS,
+    ai_audit_completion_client=None,
 ) -> dict[str, Any]:
     close = normalize_close(price_history)
     benchmark_symbol = str(benchmark_symbol).strip().upper()
@@ -315,6 +385,14 @@ def build_taco_rebound_shadow_signal(
         rebound_confirmation = {"confirmed": False, "reason": suppression_reason}
 
     generated_at = datetime.now(timezone.utc).isoformat()
+    event_quality = _build_event_quality(
+        kill_reasons=kill_reasons,
+        selected_event=selected_event,
+        recognized_events=recognized_events,
+        require_rebound_confirmation=bool(require_rebound_confirmation),
+        rebound_confirmation=rebound_confirmation,
+        crisis_guard_active=crisis_guard_active,
+    )
     payload = {
         "as_of": signal_iso,
         "mode": SHADOW_MODE,
@@ -328,6 +406,7 @@ def build_taco_rebound_shadow_signal(
         "event_context_active": event_context_active,
         "rebound_confirmation": rebound_confirmation,
         "event_rebound_break_bear": event_rebound_break_bear,
+        "event_quality": event_quality,
         "would_trade_if_enabled": would_trade_if_enabled,
         "price_stress_scan_active": scan_active,
         "price_crisis_guard_active": crisis_guard_active,
@@ -369,9 +448,30 @@ def build_taco_rebound_shadow_signal(
             "position_sizing_allowed": False,
             "allocation_recommendation_allowed": False,
             "hard_defense_override_signal_allowed": False,
+            "strategy_runtime_metadata_allowed": True,
+            "ai_audit_shadow_only": bool(ai_audit_enabled),
         },
         "generated_at": generated_at,
     }
+    if ai_audit_enabled:
+        payload["ai_audit"] = run_taco_ai_audit(
+            payload,
+            enabled=True,
+            api_key=ai_audit_api_key,
+            base_url=ai_audit_base_url,
+            model=ai_audit_model,
+            fallback_api_key=ai_audit_fallback_api_key,
+            fallback_base_url=ai_audit_fallback_base_url,
+            fallback_model=ai_audit_fallback_model,
+            codex_enabled=ai_audit_codex_enabled,
+            codex_model=ai_audit_codex_model,
+            anthropic_api_key=ai_audit_anthropic_api_key,
+            anthropic_base_url=ai_audit_anthropic_base_url,
+            anthropic_model=ai_audit_anthropic_model,
+            anthropic_version=ai_audit_anthropic_version,
+            timeout_seconds=float(ai_audit_timeout_seconds),
+            completion_client=ai_audit_completion_client,
+        )
     return json_scalar(payload)
 
 
@@ -402,7 +502,9 @@ def write_taco_rebound_shadow_outputs(payload: Mapping[str, Any], output_dir: st
         "event_rebound_break_bear": payload.get("event_rebound_break_bear"),
         **flatten_for_csv(payload.get("rebound_confirmation", {})),
         **flatten_for_csv(payload.get("data_freshness", {})),
+        **flatten_for_csv(payload.get("event_quality", {})),
         **flatten_for_csv(payload.get("selected_event") or {}),
+        **flatten_for_csv({"ai_audit": payload.get("ai_audit", {})}),
     }
     pd.DataFrame([evidence_payload]).to_csv(evidence_csv_path, index=False)
     return {
@@ -447,6 +549,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--min-attack-rebound-from-low", type=float, default=DEFAULT_MIN_ATTACK_REBOUND_FROM_LOW)
     parser.add_argument("--min-benchmark-3d-return", type=float, default=DEFAULT_MIN_BENCHMARK_3D_RETURN)
+    parser.add_argument(
+        "--ai-audit-enabled",
+        action="store_true",
+        help="Run optional shadow-only AI audit. API keys are read from QSP_STRATEGY_PLUGIN_AI_AUDIT_* env vars.",
+    )
+    parser.add_argument("--ai-audit-base-url", default=None)
+    parser.add_argument("--ai-audit-model", default=None)
+    parser.add_argument("--ai-audit-fallback-base-url", default=None)
+    parser.add_argument("--ai-audit-fallback-model", default=None)
+    parser.add_argument("--disable-ai-audit-codex", action="store_true")
+    parser.add_argument("--ai-audit-codex-model", default=None)
+    parser.add_argument("--ai-audit-anthropic-base-url", default=None)
+    parser.add_argument("--ai-audit-anthropic-model", default=None)
+    parser.add_argument("--ai-audit-anthropic-version", default=None)
+    parser.add_argument("--ai-audit-timeout-seconds", type=float, default=DEFAULT_AI_AUDIT_TIMEOUT_SECONDS)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     return parser
 
@@ -484,6 +601,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         min_benchmark_rebound_from_low=args.min_benchmark_rebound_from_low,
         min_attack_rebound_from_low=args.min_attack_rebound_from_low,
         min_benchmark_3d_return=args.min_benchmark_3d_return,
+        ai_audit_enabled=bool(args.ai_audit_enabled),
+        ai_audit_base_url=args.ai_audit_base_url,
+        ai_audit_model=args.ai_audit_model,
+        ai_audit_fallback_base_url=args.ai_audit_fallback_base_url,
+        ai_audit_fallback_model=args.ai_audit_fallback_model,
+        ai_audit_codex_enabled=not bool(args.disable_ai_audit_codex),
+        ai_audit_codex_model=args.ai_audit_codex_model,
+        ai_audit_anthropic_base_url=args.ai_audit_anthropic_base_url,
+        ai_audit_anthropic_model=args.ai_audit_anthropic_model,
+        ai_audit_anthropic_version=args.ai_audit_anthropic_version,
+        ai_audit_timeout_seconds=float(args.ai_audit_timeout_seconds),
     )
     paths = write_taco_rebound_shadow_outputs(payload, args.output_dir)
     print(

@@ -202,6 +202,34 @@ def test_strategy_plugin_runner_rehearses_triggered_shadow_artifact_without_exec
     assert payload["execution_controls"]["repository_allocation_mutation_allowed"] is False
 
 
+def test_strategy_plugin_runner_can_enable_ai_audit_without_api_key(tmp_path, monkeypatch) -> None:
+    for key in (
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_API_KEY",
+        "OPENAI_API_KEY",
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_FALLBACK_API_KEY",
+        "OPENAI_FALLBACK_API_KEY",
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    config = _shadow_plugin_config(tmp_path)
+    config["strategy_plugins"][0]["inputs"]["ai_audit_enabled"] = True
+    config["strategy_plugins"][0]["inputs"]["ai_audit_codex_enabled"] = False
+    config["strategy_plugins"][0]["inputs"]["ai_audit_model"] = "gpt-5.4-mini"
+
+    summary = run_configured_plugins(config)
+
+    output_dir = Path(summary["strategy_plugins"][0]["output_dir"])
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["canonical_route"] == "no_action"
+    assert payload["ai_audit"]["status"] == "skipped"
+    assert payload["ai_audit"]["skip_reason"] == "missing_api_endpoint"
+    assert payload["execution_controls"]["ai_audit_shadow_only"] is True
+
+
 def test_strategy_plugin_runner_defaults_output_under_strategy_plugin_scope(tmp_path, monkeypatch) -> None:
     config = _shadow_plugin_config(tmp_path, include_output_dir=False)
     monkeypatch.chdir(tmp_path)
@@ -337,6 +365,55 @@ def test_strategy_plugin_runner_runs_taco_rebound_notification_mount_for_tqqq(tm
     assert latest["rebound_confirmation"]["confirmed"] is True
     assert latest["would_trade_if_enabled"] is False
     assert "sleeve_suggestion" not in latest
+
+
+def test_strategy_plugin_runner_can_enable_taco_ai_audit_without_api_key(tmp_path, monkeypatch) -> None:
+    for key in (
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_API_KEY",
+        "OPENAI_API_KEY",
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_FALLBACK_API_KEY",
+        "OPENAI_FALLBACK_API_KEY",
+        "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
+        "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    prices_path = tmp_path / "taco_prices.csv"
+    output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_TACO_REBOUND_SHADOW
+    _taco_rebound_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": STRATEGY_NAME,
+                "plugin": PLUGIN_TACO_REBOUND_SHADOW,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "event_set": "geopolitical-deescalation",
+                    "as_of": "2026-04-02",
+                    "start_date": "2026-03-20",
+                    "ai_audit_enabled": True,
+                    "ai_audit_codex_enabled": False,
+                    "ai_audit_model": "gpt-5.4-mini",
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    assert summary["strategy_plugins"][0]["status"] == "ok"
+    latest = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert latest["canonical_route"] == "taco_rebound"
+    assert latest["ai_audit"]["status"] == "skipped"
+    assert latest["ai_audit"]["skip_reason"] == "missing_api_endpoint"
+    assert latest["execution_controls"]["ai_audit_shadow_only"] is True
 
 
 def test_strategy_plugin_runner_rejects_taco_rebound_for_non_tqqq_strategy(tmp_path) -> None:

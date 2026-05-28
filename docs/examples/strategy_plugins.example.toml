@@ -16,6 +16,19 @@ event_set = "full"
 financial_symbols = ["XLF", "KRE"]
 credit_pairs = ["HYG:IEF", "LQD:IEF"]
 rate_symbols = ["IEF", "TLT"]
+# Optional shadow-only AI audit. API keys are read from env vars, not TOML:
+# QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY / QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY
+# Legacy QSP_CRISIS_AI_AUDIT_* names are still accepted.
+ai_audit_enabled = true
+ai_audit_codex_enabled = true
+ai_audit_model = "gpt-5.4-mini"
+# ai_audit_base_url = "https://api.openai.com/v1"
+# ai_audit_fallback_base_url = "https://fallback.example.com/v1"
+# ai_audit_fallback_model = "fallback-model"
+# Anthropic fallback follows the CryptoCodexAuditBridge provider-fallback style.
+# ai_audit_anthropic_model = "claude-sonnet-4-6"
+# ai_audit_anthropic_base_url = "https://api.anthropic.com/v1"
+# ai_audit_anthropic_version = "2023-06-01"
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/crisis_response_shadow"
@@ -32,6 +45,12 @@ enabled = true
 prices = "data/output/taco_rebound_shadow/input/price_history.csv"
 event_set = "geopolitical-deescalation"
 start_date = "2026-01-01"
+# Optional shadow-only AI audit for event/source quality. It cannot alter the
+# manual-review/watch-only route or generate allocation/order instructions.
+ai_audit_enabled = true
+ai_audit_codex_enabled = true
+ai_audit_model = "gpt-5.4-mini"
+# ai_audit_anthropic_model = "claude-sonnet-4-6"
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/taco_rebound_shadow"

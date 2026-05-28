@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
+from .ai_audit import DEFAULT_AI_AUDIT_TIMEOUT_SECONDS, run_crisis_ai_audit
 from .artifacts import write_json
 from .crisis_context_research import (
     CONTEXT_LABEL_FINANCIAL_CRISIS,
@@ -184,6 +185,54 @@ def _build_evidence(
     }
 
 
+def _score_checks(checks: Mapping[str, bool]) -> float:
+    if not checks:
+        return 0.0
+    return sum(1.0 for value in checks.values() if bool(value)) / float(len(checks))
+
+
+def _build_data_quality(
+    *,
+    kill_reasons: Sequence[str],
+    benchmark_price_available: bool,
+    price_age_days: int,
+    max_price_age_days: int,
+    context_features_available: bool,
+    external_dependency_active: bool,
+    external_as_of: pd.Timestamp | None,
+    external_age_days: int | None,
+    max_external_context_age_days: int,
+) -> dict[str, Any]:
+    external_context_available = (not external_dependency_active) or external_as_of is not None
+    external_context_fresh = (not external_dependency_active) or (
+        external_age_days is not None and external_age_days <= int(max_external_context_age_days)
+    )
+    checks = {
+        "benchmark_price_available": bool(benchmark_price_available),
+        "price_data_fresh": int(price_age_days) <= int(max_price_age_days),
+        "context_features_available": bool(context_features_available),
+        "external_context_available_if_required": bool(external_context_available),
+        "external_context_fresh_if_required": bool(external_context_fresh),
+        "kill_switch_clear": not bool(kill_reasons),
+    }
+    warnings = list(kill_reasons)
+    if not context_features_available:
+        warnings.append("context features unavailable")
+    if external_dependency_active and external_as_of is None:
+        warnings.append("external context required but unavailable")
+    if external_dependency_active and not external_context_fresh:
+        warnings.append("external context required but stale")
+    quality_score = _score_checks(checks)
+    if kill_reasons:
+        quality_score = min(quality_score, 0.5)
+    return {
+        "schema_version": "deterministic_data_quality.v1",
+        "quality_score": round(float(quality_score), 4),
+        "checks": checks,
+        "warnings": warnings,
+    }
+
+
 def build_crisis_response_shadow_signal(
     price_history,
     *,
@@ -228,6 +277,21 @@ def build_crisis_response_shadow_signal(
     external_margin_revision_3m_threshold: float = DEFAULT_EXTERNAL_MARGIN_REVISION_3M_THRESHOLD,
     max_price_age_days: int = DEFAULT_MAX_PRICE_AGE_DAYS,
     max_external_context_age_days: int = DEFAULT_MAX_EXTERNAL_CONTEXT_AGE_DAYS,
+    ai_audit_enabled: bool = False,
+    ai_audit_api_key: str | None = None,
+    ai_audit_base_url: str | None = None,
+    ai_audit_model: str | None = None,
+    ai_audit_fallback_api_key: str | None = None,
+    ai_audit_fallback_base_url: str | None = None,
+    ai_audit_fallback_model: str | None = None,
+    ai_audit_codex_enabled: bool | None = None,
+    ai_audit_codex_model: str | None = None,
+    ai_audit_anthropic_api_key: str | None = None,
+    ai_audit_anthropic_base_url: str | None = None,
+    ai_audit_anthropic_model: str | None = None,
+    ai_audit_anthropic_version: str | None = None,
+    ai_audit_timeout_seconds: float = DEFAULT_AI_AUDIT_TIMEOUT_SECONDS,
+    ai_audit_completion_client=None,
 ) -> dict[str, Any]:
     close = normalize_close(price_history)
     benchmark_symbol = str(benchmark_symbol).strip().upper()
@@ -397,52 +461,84 @@ def build_crisis_response_shadow_signal(
         "max_external_context_age_days": int(max_external_context_age_days),
         "events_as_of": signal_iso,
     }
+    data_quality = _build_data_quality(
+        kill_reasons=kill_reasons,
+        benchmark_price_available=benchmark_symbol in close.columns,
+        price_age_days=price_age_days,
+        max_price_age_days=int(max_price_age_days),
+        context_features_available=not feature_row.empty,
+        external_dependency_active=external_dependency_active,
+        external_as_of=external_as_of,
+        external_age_days=external_age_days,
+        max_external_context_age_days=int(max_external_context_age_days),
+    )
     auditor_verdict = "block_kill_switch" if kill_switch_active else "approve_shadow_route"
     if not kill_switch_active and suggested_action == ACTION_WATCH_ONLY:
         auditor_verdict = "approve_watch_only"
     elif not kill_switch_active and suggested_action == ACTION_NO_ACTION:
         auditor_verdict = "approve_no_action"
 
-    return json_scalar(
-        {
-            "as_of": signal_iso,
-            "mode": SHADOW_MODE,
-            "schema_version": SCHEMA_VERSION,
-            "profile": SHADOW_PROFILE,
-            "canonical_route": canonical_route,
-            "watch_label": (
-                ""
-                if canonical_route != ROUTE_NO_ACTION and watch_label == "valuation_bubble_watch"
-                else watch_label
-            ),
-            "suggested_action": suggested_action,
-            "risk_multiplier_suggestion": risk_multiplier_suggestion,
-            "would_trade_if_enabled": would_trade_if_enabled,
-            "price_scanner_active": price_scanner_active,
-            "bubble_fragility_active": bubble_fragility_active,
-            "kill_switch_active": kill_switch_active,
-            "kill_switch_reason": "; ".join(kill_reasons),
-            "data_freshness": data_freshness,
-            "evidence": evidence,
-            "audit_summary": {
-                "proposer_route": proposer_route,
-                "proposer_context_label": proposer_label,
-                "auditor_verdict": auditor_verdict,
-                "final_route": canonical_route,
-                "reason": proposer_reason,
-            },
-            "execution_controls": {
-                "capital_impact": "none",
-                "broker_order_allowed": False,
-                "live_allocation_mutation_allowed": False,
-                "log_namespace": SHADOW_PROFILE,
-                "notification_profile": "shadow_only",
-                "intended_strategy_role": "black_swan_defense",
-                "defensive_destination": "cash_or_money_market",
-            },
-            "generated_at": generated_at,
-        }
-    )
+    payload: dict[str, Any] = {
+        "as_of": signal_iso,
+        "mode": SHADOW_MODE,
+        "schema_version": SCHEMA_VERSION,
+        "profile": SHADOW_PROFILE,
+        "canonical_route": canonical_route,
+        "watch_label": (
+            ""
+            if canonical_route != ROUTE_NO_ACTION and watch_label == "valuation_bubble_watch"
+            else watch_label
+        ),
+        "suggested_action": suggested_action,
+        "risk_multiplier_suggestion": risk_multiplier_suggestion,
+        "would_trade_if_enabled": would_trade_if_enabled,
+        "price_scanner_active": price_scanner_active,
+        "bubble_fragility_active": bubble_fragility_active,
+        "kill_switch_active": kill_switch_active,
+        "kill_switch_reason": "; ".join(kill_reasons),
+        "data_freshness": data_freshness,
+        "data_quality": data_quality,
+        "evidence": evidence,
+        "audit_summary": {
+            "proposer_route": proposer_route,
+            "proposer_context_label": proposer_label,
+            "auditor_verdict": auditor_verdict,
+            "final_route": canonical_route,
+            "reason": proposer_reason,
+        },
+        "execution_controls": {
+            "capital_impact": "none",
+            "broker_order_allowed": False,
+            "live_allocation_mutation_allowed": False,
+            "log_namespace": SHADOW_PROFILE,
+            "notification_profile": "shadow_only",
+            "intended_strategy_role": "black_swan_defense",
+            "defensive_destination": "cash_or_money_market",
+            "strategy_runtime_metadata_allowed": True,
+            "ai_audit_shadow_only": bool(ai_audit_enabled),
+        },
+        "generated_at": generated_at,
+    }
+    if ai_audit_enabled:
+        payload["ai_audit"] = run_crisis_ai_audit(
+            payload,
+            enabled=True,
+            api_key=ai_audit_api_key,
+            base_url=ai_audit_base_url,
+            model=ai_audit_model,
+            fallback_api_key=ai_audit_fallback_api_key,
+            fallback_base_url=ai_audit_fallback_base_url,
+            fallback_model=ai_audit_fallback_model,
+            codex_enabled=ai_audit_codex_enabled,
+            codex_model=ai_audit_codex_model,
+            anthropic_api_key=ai_audit_anthropic_api_key,
+            anthropic_base_url=ai_audit_anthropic_base_url,
+            anthropic_model=ai_audit_anthropic_model,
+            anthropic_version=ai_audit_anthropic_version,
+            timeout_seconds=float(ai_audit_timeout_seconds),
+            completion_client=ai_audit_completion_client,
+        )
+    return json_scalar(payload)
 
 
 def write_crisis_response_shadow_outputs(payload: Mapping[str, Any], output_dir: str | Path) -> dict[str, Path]:
@@ -467,8 +563,10 @@ def write_crisis_response_shadow_outputs(payload: Mapping[str, Any], output_dir:
         "suggested_action": payload.get("suggested_action"),
         "watch_label": payload.get("watch_label"),
         **flatten_for_csv(payload.get("data_freshness", {})),
+        **flatten_for_csv(payload.get("data_quality", {})),
         **flatten_for_csv(payload.get("evidence", {})),
         **flatten_for_csv(payload.get("audit_summary", {})),
+        **flatten_for_csv({"ai_audit": payload.get("ai_audit", {})}),
     }
     pd.DataFrame([evidence_payload]).to_csv(evidence_csv_path, index=False)
     return {
@@ -580,6 +678,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-price-age-days", type=int, default=DEFAULT_MAX_PRICE_AGE_DAYS)
     parser.add_argument("--max-external-context-age-days", type=int, default=DEFAULT_MAX_EXTERNAL_CONTEXT_AGE_DAYS)
+    parser.add_argument(
+        "--ai-audit-enabled",
+        action="store_true",
+        help=(
+            "Run optional shadow-only AI audit. API keys are read from "
+            "QSP_STRATEGY_PLUGIN_AI_AUDIT_* or legacy QSP_CRISIS_AI_AUDIT_* env vars."
+        ),
+    )
+    parser.add_argument("--ai-audit-base-url", default=None)
+    parser.add_argument("--ai-audit-model", default=None)
+    parser.add_argument("--ai-audit-fallback-base-url", default=None)
+    parser.add_argument("--ai-audit-fallback-model", default=None)
+    parser.add_argument("--disable-ai-audit-codex", action="store_true")
+    parser.add_argument("--ai-audit-codex-model", default=None)
+    parser.add_argument("--ai-audit-anthropic-base-url", default=None)
+    parser.add_argument("--ai-audit-anthropic-model", default=None)
+    parser.add_argument("--ai-audit-anthropic-version", default=None)
+    parser.add_argument("--ai-audit-timeout-seconds", type=float, default=DEFAULT_AI_AUDIT_TIMEOUT_SECONDS)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     return parser
 
@@ -655,6 +771,17 @@ def main(argv: list[str] | None = None) -> int:
         external_margin_revision_3m_threshold=float(args.external_margin_revision_3m_threshold),
         max_price_age_days=int(args.max_price_age_days),
         max_external_context_age_days=int(args.max_external_context_age_days),
+        ai_audit_enabled=bool(args.ai_audit_enabled),
+        ai_audit_base_url=args.ai_audit_base_url,
+        ai_audit_model=args.ai_audit_model,
+        ai_audit_fallback_base_url=args.ai_audit_fallback_base_url,
+        ai_audit_fallback_model=args.ai_audit_fallback_model,
+        ai_audit_codex_enabled=not bool(args.disable_ai_audit_codex),
+        ai_audit_codex_model=args.ai_audit_codex_model,
+        ai_audit_anthropic_base_url=args.ai_audit_anthropic_base_url,
+        ai_audit_anthropic_model=args.ai_audit_anthropic_model,
+        ai_audit_anthropic_version=args.ai_audit_anthropic_version,
+        ai_audit_timeout_seconds=float(args.ai_audit_timeout_seconds),
     )
     paths = write_crisis_response_shadow_outputs(payload, args.output_dir)
     print(

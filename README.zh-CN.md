@@ -24,7 +24,9 @@ Brokers、Schwab、LongBridge、Firstrade 等平台仓库只负责加载 artifac
 ## 插件
 
 - `crisis_response_shadow`：面向杠杆美股策略的黑天鹅防守观察插件。它只写入 shadow-mode artifact，不调用券商接口。
+  可选启用 AI shadow audit：AI 只审计证据一致性和数据缺口，不改写确定性路线、不下单、不改仓位；默认优先尝试本机 Codex，失败后可走 OpenAI-compatible 或 Anthropic fallback endpoint。
 - `taco_rebound_shadow`：仅适用于 TQQQ 的事件反弹上下文通知插件。它只写入人工复核 artifact，不给仓位大小建议，也不改动配置或账户分配。缓和/降温事件会先保持 watch-only，只有事件后价格反弹确认通过后才触发人工复核通知，以减少过早抄底提醒。
+  该插件也可选启用同样的 shadow-only AI audit，但 AI 只复核事件来源和反弹证据质量。
 - TACO panic-rebound 研究、组合回测和 overlay 对比也归属本仓库；snapshot pipeline 仓库只保留兼容入口。
 
 ## 使用方式
@@ -41,8 +43,22 @@ qsp-run-strategy-plugins --config docs/examples/strategy_plugins.example.toml
 qsp-build-crisis-response-shadow-signal \
   --prices data/input/price_history.csv \
   --as-of 2026-05-22 \
+  --ai-audit-enabled \
   --output-dir data/output/tqqq_growth_income/plugins/crisis_response_shadow
 ```
+
+AI audit 使用环境变量读取 API 配置：
+
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_CODEX_ENABLED`，默认 `true`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_CODEX_MODEL`，本机 Codex provider 的可选标签
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY`，或 fallback 到 `QSP_CRISIS_AI_AUDIT_API_KEY` / `OPENAI_API_KEY`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_BASE_URL`，或 fallback 到 `QSP_CRISIS_AI_AUDIT_BASE_URL` / `OPENAI_API_BASE_URL` / `OPENAI_BASE_URL`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_MODEL`，或 fallback 到 `QSP_CRISIS_AI_AUDIT_MODEL` / `OPENAI_MODEL`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_BASE_URL` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_MODEL`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY`，或 fallback 到 `QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_MODEL` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_BASE_URL` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_VERSION`
+
+如果运行环境已经统一注入 `ANTHROPIC_API_KEY`，不需要为策略插件重新申请 key；只有当希望把策略插件和其他 audit 服务隔离时，才使用 `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY` 覆盖。
 
 从本地价格历史 CSV 直接生成 TACO 反弹通知 artifact：
 
@@ -51,6 +67,7 @@ qsp-build-taco-rebound-shadow-signal \
   --prices data/input/price_history.csv \
   --event-set geopolitical-deescalation \
   --as-of 2026-05-22 \
+  --ai-audit-enabled \
   --output-dir data/output/tqqq_growth_income/plugins/taco_rebound_shadow
 ```
 

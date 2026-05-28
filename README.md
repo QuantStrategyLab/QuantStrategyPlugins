@@ -25,11 +25,16 @@ send notifications; plugin research and signal generation live here.
 ## Plugins
 
 - `crisis_response_shadow`: black-swan defense observer for leveraged US equity
-  strategies. It writes shadow-mode artifacts and never calls brokers.
+  strategies. It writes shadow-mode artifacts and never calls brokers. It can
+  optionally run AI shadow audit: the model audits evidence consistency and data
+  gaps only, never overrides the deterministic route, places orders, or changes
+  allocations. Local Codex is tried first when enabled; OpenAI-compatible and
+  Anthropic fallback endpoints can be configured.
 - `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
   manual-review artifacts and never recommends position size or changes
   allocations. Softening/de-escalation events stay watch-only until post-event
   price rebound confirmation passes, which reduces early bottom-fishing alerts.
+  It can optionally run the same shadow-only AI audit on event/source quality.
 - TACO panic-rebound research and portfolio/overlay backtests also live here;
   snapshot pipeline repositories keep only compatibility entrypoints.
 
@@ -47,8 +52,22 @@ Build a crisis response artifact directly from a local price-history CSV:
 qsp-build-crisis-response-shadow-signal \
   --prices data/input/price_history.csv \
   --as-of 2026-05-22 \
+  --ai-audit-enabled \
   --output-dir data/output/tqqq_growth_income/plugins/crisis_response_shadow
 ```
+
+AI audit reads API settings from environment variables:
+
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_CODEX_ENABLED`, default `true`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_CODEX_MODEL`, optional label for the local Codex provider
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY`, falling back to `QSP_CRISIS_AI_AUDIT_API_KEY` / `OPENAI_API_KEY`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_BASE_URL`, falling back to `QSP_CRISIS_AI_AUDIT_BASE_URL` / `OPENAI_API_BASE_URL` / `OPENAI_BASE_URL`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_MODEL`, falling back to `QSP_CRISIS_AI_AUDIT_MODEL` / `OPENAI_MODEL`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_BASE_URL` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_MODEL`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY`, falling back to `QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY`
+- `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_MODEL` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_BASE_URL` / `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_VERSION`
+
+If the runtime already injects `ANTHROPIC_API_KEY`, the strategy plugins can reuse it. Use `QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY` only when this audit path needs an explicit service-specific override.
 
 Build a TACO rebound notification artifact directly from a local price-history CSV:
 
@@ -57,6 +76,7 @@ qsp-build-taco-rebound-shadow-signal \
   --prices data/input/price_history.csv \
   --event-set geopolitical-deescalation \
   --as-of 2026-05-22 \
+  --ai-audit-enabled \
   --output-dir data/output/tqqq_growth_income/plugins/taco_rebound_shadow
 ```
 

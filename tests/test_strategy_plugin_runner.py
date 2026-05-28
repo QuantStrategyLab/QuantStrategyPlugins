@@ -9,6 +9,8 @@ import pytest
 from quant_strategy_plugins.crisis_response_research import ROUTE_TRUE_CRISIS
 from quant_strategy_plugins.strategy_plugin_runner import (
     PLUGIN_CRISIS_RESPONSE_SHADOW,
+    PLUGIN_MARKET_REGIME_CONTROL,
+    PLUGIN_MACRO_RISK_GOVERNOR,
     PLUGIN_TACO_REBOUND_SHADOW,
     load_plugin_config,
     main,
@@ -129,6 +131,24 @@ def _taco_rebound_prices() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _macro_stress_prices() -> pd.DataFrame:
+    dates = pd.bdate_range("2025-01-02", periods=260)
+    rows: list[dict[str, object]] = []
+    qqq = pd.Series([100.0 + idx * 0.10 for idx in range(len(dates))], index=dates)
+    qqq.iloc[-30:] = pd.Series([125.0 - idx * (45.0 / 29.0) for idx in range(30)], index=dates[-30:])
+    vix = pd.Series(15.0, index=dates)
+    vix.iloc[-6:] = [24.0, 27.0, 31.0, 34.0, 38.0, 41.0]
+    hyg = pd.Series(100.0, index=dates)
+    hyg.iloc[-22:] = pd.Series([100.0 - idx * (9.0 / 21.0) for idx in range(22)], index=dates[-22:])
+    ief = pd.Series(100.0, index=dates)
+    ief.iloc[-22:] = pd.Series([100.0 + idx * (3.0 / 21.0) for idx in range(22)], index=dates[-22:])
+    prices = {"QQQ": qqq, "TQQQ": qqq * 3.0, "VIX": vix, "HYG": hyg, "IEF": ief}
+    for symbol, series in prices.items():
+        for as_of, close in series.items():
+            rows.append({"symbol": symbol, "as_of": as_of, "close": close, "volume": 1_000_000})
+    return pd.DataFrame(rows)
+
+
 def test_strategy_plugin_runner_executes_strategy_scoped_shadow_plugin(tmp_path) -> None:
     config = _shadow_plugin_config(tmp_path)
     summary = run_configured_plugins(config)
@@ -157,6 +177,90 @@ def test_strategy_plugin_runner_executes_strategy_scoped_shadow_plugin(tmp_path)
     assert payload["execution_controls"]["repository_broker_write_allowed"] is False
     assert payload["execution_controls"]["repository_allocation_mutation_allowed"] is False
     assert "platform behavior contract" in payload["execution_controls"]["mode_note"]
+
+
+def test_strategy_plugin_runner_runs_macro_risk_governor_for_tqqq(tmp_path) -> None:
+    prices_path = tmp_path / "macro_prices.csv"
+    output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_MACRO_RISK_GOVERNOR
+    _macro_stress_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": STRATEGY_NAME,
+                "plugin": PLUGIN_MACRO_RISK_GOVERNOR,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "as_of": "2025-12-31",
+                    "vix_symbols": ["VIX"],
+                    "credit_pairs": ["HYG:IEF"],
+                    "crisis_score_threshold": 99.0,
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    result = summary["strategy_plugins"][0]
+    assert result["strategy"] == STRATEGY_NAME
+    assert result["plugin"] == PLUGIN_MACRO_RISK_GOVERNOR
+    assert result["status"] == "ok"
+    assert "route=delever action=delever" in result["message"]
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["strategy"] == STRATEGY_NAME
+    assert payload["plugin"] == PLUGIN_MACRO_RISK_GOVERNOR
+    assert payload["canonical_route"] == "delever"
+    assert payload["execution_controls"]["broker_order_allowed"] is False
+    assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
+
+
+def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_path) -> None:
+    prices_path = tmp_path / "market_regime_prices.csv"
+    output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
+    _macro_stress_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": STRATEGY_NAME,
+                "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "as_of": "2025-12-31",
+                    "vix_symbols": ["VIX"],
+                    "credit_pairs": ["HYG:IEF"],
+                    "crisis_enabled": False,
+                    "taco_enabled": False,
+                    "crisis_score_threshold": 99.0,
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    result = summary["strategy_plugins"][0]
+    assert result["strategy"] == STRATEGY_NAME
+    assert result["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
+    assert result["status"] == "ok"
+    assert "route=risk_reduced action=delever" in result["message"]
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["strategy"] == STRATEGY_NAME
+    assert payload["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
+    assert payload["canonical_route"] == "risk_reduced"
+    assert payload["position_control"]["leverage_scalar"] == 0.0
+    assert payload["position_control"]["risk_asset_scalar"] == 1.0
+    assert payload["position_control"]["taco_allowed"] is False
+    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
+    assert payload["execution_controls"]["broker_order_allowed"] is False
+    assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
 
 
 def test_strategy_plugin_runner_rehearses_triggered_shadow_artifact_without_execution_permissions(tmp_path) -> None:

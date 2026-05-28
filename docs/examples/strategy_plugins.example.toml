@@ -35,6 +35,25 @@ output_dir = "data/output/tqqq_growth_income/plugins/crisis_response_shadow"
 
 [[strategy_plugins]]
 strategy = "tqqq_growth_income"
+plugin = "macro_risk_governor"
+enabled = true
+# Deterministic macro de-leveraging governor. VIX/credit/price stress can emit
+# leverage_scalar and risk_asset_scalar for strategies that explicitly consume
+# mounted plugin metadata. OSINT fields remain watch-only evidence.
+
+[strategy_plugins.inputs]
+prices = "data/output/macro_risk_governor/input/price_history.csv"
+external_context = "data/output/macro_risk_governor/input/external_context.csv"
+benchmark_symbol = "QQQ"
+attack_symbol = "TQQQ"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+credit_pairs = ["HYG:IEF", "LQD:IEF"]
+
+[strategy_plugins.outputs]
+output_dir = "data/output/tqqq_growth_income/plugins/macro_risk_governor"
+
+[[strategy_plugins]]
+strategy = "tqqq_growth_income"
 plugin = "taco_rebound_shadow"
 enabled = true
 # Notification-only TACO context. The artifact may trigger manual-review alerts,
@@ -54,3 +73,32 @@ ai_audit_model = "gpt-5.4-mini"
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/taco_rebound_shadow"
+
+[[strategy_plugins]]
+strategy = "tqqq_growth_income"
+plugin = "market_regime_control"
+enabled = true
+# Unified facade over crisis_response_shadow, macro_risk_governor, and
+# taco_rebound_shadow. It emits one deterministic arbiter result with two
+# exits: notification and strategy-opt-in position_control. Broker writes and
+# live allocation mutation remain disabled in shadow mode.
+
+[strategy_plugins.inputs]
+prices = "data/output/market_regime_control/input/price_history.csv"
+external_context = "data/output/market_regime_control/input/external_context.csv"
+event_set = "geopolitical-deescalation"
+benchmark_symbol = "QQQ"
+attack_symbol = "TQQQ"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+credit_pairs = ["HYG:IEF", "LQD:IEF"]
+financial_symbols = ["XLF", "KRE"]
+rate_symbols = ["IEF", "TLT"]
+strategy_policy = "levered_growth_income_v1"
+taco_opportunity_size_scalar = 0.0
+# Component toggles support staged shadow rollout.
+crisis_enabled = true
+macro_enabled = true
+taco_enabled = true
+
+[strategy_plugins.outputs]
+output_dir = "data/output/tqqq_growth_income/plugins/market_regime_control"

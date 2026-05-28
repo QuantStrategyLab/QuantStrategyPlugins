@@ -14,6 +14,16 @@ from .crisis_response_shadow_plugin import (
     build_crisis_response_shadow_signal,
     write_crisis_response_shadow_outputs,
 )
+from .macro_risk_governor_plugin import (
+    MACRO_RISK_GOVERNOR_PROFILE,
+    build_macro_risk_governor_signal,
+    write_macro_risk_governor_outputs,
+)
+from .market_regime_control_plugin import (
+    MARKET_REGIME_CONTROL_PROFILE,
+    build_market_regime_control_signal,
+    write_market_regime_control_outputs,
+)
 from .russell_1000_multi_factor_defensive_snapshot import read_table
 from .taco_panic_rebound_research import DEFAULT_EVENT_SET, resolve_trade_war_event_set
 from .taco_rebound_shadow_plugin import (
@@ -24,10 +34,14 @@ from .taco_rebound_shadow_plugin import (
 
 DEFAULT_RUNNER_OUTPUT_DIR = "data/output/strategy_plugins"
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
+PLUGIN_MARKET_REGIME_CONTROL = MARKET_REGIME_CONTROL_PROFILE
+PLUGIN_MACRO_RISK_GOVERNOR = MACRO_RISK_GOVERNOR_PROFILE
 PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
 PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income", "soxl_soxx_trend_income"),
+    PLUGIN_MARKET_REGIME_CONTROL: ("tqqq_growth_income",),
+    PLUGIN_MACRO_RISK_GOVERNOR: ("tqqq_growth_income",),
     PLUGIN_TACO_REBOUND_SHADOW: ("tqqq_growth_income",),
 }
 PLUGIN_RESEARCH_ONLY_REASONS: dict[str, str] = {}
@@ -281,6 +295,58 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
     return kwargs
 
 
+def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    string_keys = {
+        "as_of",
+        "benchmark_symbol",
+        "attack_symbol",
+    }
+    numeric_keys = {
+        "benchmark_drawdown_watch",
+        "benchmark_drawdown_crisis",
+        "realized_vol_threshold",
+        "vix_watch_level",
+        "vix_crisis_level",
+        "vix_spike_threshold",
+        "credit_relative_threshold",
+        "hy_oas_watch_level",
+        "hy_oas_delta_threshold",
+        "financial_stress_watch_level",
+        "pizza_index_watch_level",
+        "watch_score_threshold",
+        "delever_score_threshold",
+        "crisis_score_threshold",
+        "delever_leverage_scalar",
+        "delever_risk_asset_scalar",
+        "crisis_leverage_scalar",
+        "crisis_risk_asset_scalar",
+    }
+    integer_keys = {
+        "max_price_age_days",
+        "max_external_context_age_days",
+        "ma_days",
+        "realized_vol_window",
+        "vix_spike_lookback_days",
+        "credit_relative_lookback_days",
+        "hy_oas_delta_lookback_days",
+    }
+    for key in string_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = str(plugin_config[key]).strip()
+    for key in numeric_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = float(plugin_config[key])
+    for key in integer_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = int(plugin_config[key])
+    if "vix_symbols" in plugin_config:
+        kwargs["vix_symbols"] = _as_str_tuple(plugin_config["vix_symbols"])
+    if "credit_pairs" in plugin_config:
+        kwargs["credit_pairs"] = _as_credit_pairs(plugin_config["credit_pairs"])
+    return kwargs
+
+
 PLUGIN_MODE_EXECUTION_CONTROLS: dict[str, dict[str, Any]] = {
     SHADOW_MODE: {
         "capital_impact": "none",
@@ -339,6 +405,31 @@ def _build_taco_rebound_payload(price_history: pd.DataFrame, plugin_config: Mapp
     )
 
 
+def _build_macro_risk_governor_payload(price_history: pd.DataFrame, plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    external_context = _optional_table(plugin_config.get("external_context"))
+    return build_macro_risk_governor_signal(
+        price_history,
+        external_context=external_context,
+        **_build_macro_risk_governor_kwargs(plugin_config),
+    )
+
+
+def _build_market_regime_control_payload(price_history: pd.DataFrame, plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    components: dict[str, Mapping[str, Any]] = {}
+    if _as_bool(plugin_config.get("crisis_enabled"), default=True):
+        components["crisis"] = _build_crisis_response_payload(price_history, plugin_config)
+    if _as_bool(plugin_config.get("macro_enabled"), default=True):
+        components["macro"] = _build_macro_risk_governor_payload(price_history, plugin_config)
+    if _as_bool(plugin_config.get("taco_enabled"), default=True):
+        components["taco"] = _build_taco_rebound_payload(price_history, plugin_config)
+    return build_market_regime_control_signal(
+        components,
+        strategy_policy=str(plugin_config.get("strategy_policy", "levered_growth_income_v1")).strip(),
+        taco_opportunity_size_scalar=float(plugin_config.get("taco_opportunity_size_scalar", 0.0) or 0.0),
+        as_of=str(plugin_config.get("as_of", "") or "").strip() or None,
+    )
+
+
 def _run_table_strategy_plugin(
     plugin_config: Mapping[str, Any],
     default_mode: str,
@@ -391,6 +482,16 @@ TACO_REBOUND_SHADOW_SPEC = PluginExecutionSpec(
     build_payload=_build_taco_rebound_payload,
     write_outputs=write_taco_rebound_shadow_outputs,
 )
+MACRO_RISK_GOVERNOR_SPEC = PluginExecutionSpec(
+    default_plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+    build_payload=_build_macro_risk_governor_payload,
+    write_outputs=write_macro_risk_governor_outputs,
+)
+MARKET_REGIME_CONTROL_SPEC = PluginExecutionSpec(
+    default_plugin=PLUGIN_MARKET_REGIME_CONTROL,
+    build_payload=_build_market_regime_control_payload,
+    write_outputs=write_market_regime_control_outputs,
+)
 
 
 def run_crisis_response_shadow_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
@@ -401,8 +502,18 @@ def run_taco_rebound_shadow_plugin(plugin_config: Mapping[str, Any], default_mod
     return _run_table_strategy_plugin(plugin_config, default_mode, TACO_REBOUND_SHADOW_SPEC)
 
 
+def run_macro_risk_governor_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
+    return _run_table_strategy_plugin(plugin_config, default_mode, MACRO_RISK_GOVERNOR_SPEC)
+
+
+def run_market_regime_control_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
+    return _run_table_strategy_plugin(plugin_config, default_mode, MARKET_REGIME_CONTROL_SPEC)
+
+
 PLUGIN_RUNNERS: dict[str, PluginRunner] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: run_crisis_response_shadow_plugin,
+    PLUGIN_MARKET_REGIME_CONTROL: run_market_regime_control_plugin,
+    PLUGIN_MACRO_RISK_GOVERNOR: run_macro_risk_governor_plugin,
     PLUGIN_TACO_REBOUND_SHADOW: run_taco_rebound_shadow_plugin,
 }
 
@@ -494,6 +605,8 @@ def main(argv: list[str] | None = None) -> int:
 
 __all__ = [
     "PLUGIN_CRISIS_RESPONSE_SHADOW",
+    "PLUGIN_MARKET_REGIME_CONTROL",
+    "PLUGIN_MACRO_RISK_GOVERNOR",
     "PLUGIN_TACO_REBOUND_SHADOW",
     "PLUGIN_COMPATIBLE_STRATEGIES",
     "PLUGIN_RESEARCH_ONLY_REASONS",
@@ -502,5 +615,7 @@ __all__ = [
     "main",
     "run_configured_plugins",
     "run_crisis_response_shadow_plugin",
+    "run_market_regime_control_plugin",
+    "run_macro_risk_governor_plugin",
     "run_taco_rebound_shadow_plugin",
 ]

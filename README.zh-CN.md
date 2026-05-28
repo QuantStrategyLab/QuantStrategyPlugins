@@ -25,6 +25,7 @@ Brokers、Schwab、LongBridge、Firstrade 等平台仓库只负责加载 artifac
 
 - `crisis_response_shadow`：面向杠杆美股策略的黑天鹅防守观察插件。它只写入 shadow-mode artifact，不调用券商接口。
   可选启用 AI shadow audit：AI 只审计证据一致性和数据缺口，不改写确定性路线、不下单、不改仓位；默认优先尝试本机 Codex，失败后可走 OpenAI-compatible 或 Anthropic fallback endpoint。
+- `macro_risk_governor`：面向 TQQQ 的确定性宏观降杠杆插件。它按价格趋势、实现波动、VIX、信用相对压力和可选外部金融压力字段打分，输出 `leverage_scalar` / `risk_asset_scalar` 给显式 opt-in 的策略运行时消费。五角大楼比萨指数这类 OSINT 字段只作为 watch-only 证据，不进入可执行分数。
 - `taco_rebound_shadow`：仅适用于 TQQQ 的事件反弹上下文通知插件。它只写入人工复核 artifact，不给仓位大小建议，也不改动配置或账户分配。缓和/降温事件会先保持 watch-only，只有事件后价格反弹确认通过后才触发人工复核通知，以减少过早抄底提醒。
   该插件也可选启用同样的 shadow-only AI audit，但 AI 只复核事件来源和反弹证据质量。
 - TACO panic-rebound 研究、组合回测和 overlay 对比也归属本仓库；snapshot pipeline 仓库只保留兼容入口。

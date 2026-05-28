@@ -63,7 +63,7 @@
 - TQQQ 杠杆增长收益策略
   默认消费 `position_control`。`risk_off` 降到现金类或非风险资产；`risk_reduced` 按策略配置降低杠杆或风险预算；TACO 只触发人工复核和本地 veto。
 - SOXL/SOXX 趋势收益策略
-  默认挂载统一插件。`risk_off` 生效；`risk_reduced` 可按配置选择通知-only 或部分降风险，避免过度干扰高波动半导体策略。
+  不默认挂载统一插件，也不消费 `position_control`。SOXL 继续只使用已经通过复核的 SOXX 自身趋势和波动率降杠杆门；宏观、危机和 OSINT 信号只进入通用通知，由人工决定是否干预。
 - Global ETF、Russell 1000、Tech/Communication、Mega Cap 类轮动策略
   默认支持统一插件。`risk_reduced` 建议做 50% 风险预算缩放，`risk_off` 建议归零风险资产预算。
 - DCA 或收入型低频策略
@@ -112,7 +112,7 @@ TQQQ 2010-2026 真实产品窗口：
 ## 当前推荐默认值
 
 - 杠杆策略：默认挂载统一插件，允许 `risk_off` 生效。
-- 高波动行业杠杆策略：默认挂载统一插件，但 `risk_reduced` 是否影响仓位由策略配置控制。
+- 高波动行业杠杆策略：除非回测证明自动消费能提升收益/回撤组合，否则不默认挂载统一插件；SOXL 当前只接收通用通知。
 - 轮动策略：默认开启 50% risk scaling 和 `risk_off` 归零。
 - TACO：默认通知-only；只有没有危机和宏观降风险时才允许提示机会。
 - AI audit：默认不参与交易权限，只能写审计结论和通知证据。

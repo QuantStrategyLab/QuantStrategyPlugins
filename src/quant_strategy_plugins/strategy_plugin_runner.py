@@ -33,16 +33,17 @@ from .taco_rebound_shadow_plugin import (
 )
 
 DEFAULT_RUNNER_OUTPUT_DIR = "data/output/strategy_plugins"
+GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY = "market_regime_notification"
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
 PLUGIN_MARKET_REGIME_CONTROL = MARKET_REGIME_CONTROL_PROFILE
 PLUGIN_MACRO_RISK_GOVERNOR = MACRO_RISK_GOVERNOR_PROFILE
 PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
 PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
-    PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income", "soxl_soxx_trend_income"),
+    PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income",),
     PLUGIN_MARKET_REGIME_CONTROL: (
+        GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
         "tqqq_growth_income",
-        "soxl_soxx_trend_income",
         "global_etf_rotation",
         "russell_1000_multi_factor_defensive",
         "tech_communication_pullback_enhancement",
@@ -402,6 +403,11 @@ def _apply_plugin_contract(payload: Mapping[str, Any], *, strategy: str, plugin:
     execution_controls["effective_mode"] = mode
     execution_controls["repository_broker_write_allowed"] = False
     execution_controls["repository_allocation_mutation_allowed"] = False
+    if strategy == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY:
+        execution_controls["capital_impact"] = "notification_only"
+        execution_controls["strategy_runtime_metadata_allowed"] = False
+        execution_controls["position_control_shadow_only"] = True
+        execution_controls["intended_strategy_role"] = "general_market_regime_notification"
     execution_controls["mode_note"] = (
         "Mode is the platform behavior contract; this repository writes artifacts and does not call brokers"
     )
@@ -628,6 +634,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY",
     "PLUGIN_CRISIS_RESPONSE_SHADOW",
     "PLUGIN_MARKET_REGIME_CONTROL",
     "PLUGIN_MACRO_RISK_GOVERNOR",

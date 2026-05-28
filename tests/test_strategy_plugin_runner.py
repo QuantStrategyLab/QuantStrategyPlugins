@@ -8,6 +8,7 @@ import pytest
 
 from quant_strategy_plugins.crisis_response_research import ROUTE_TRUE_CRISIS
 from quant_strategy_plugins.strategy_plugin_runner import (
+    GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
     PLUGIN_COMPATIBLE_STRATEGIES,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
     PLUGIN_DEPRECATED_SUCCESSORS,
@@ -266,16 +267,16 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
 
 
-def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_path) -> None:
+def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path) -> None:
     prices_path = tmp_path / "market_regime_prices.csv"
-    output_dir = tmp_path / SOXL_STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
+    output_dir = tmp_path / GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
     _soxl_quiet_prices().to_csv(prices_path, index=False)
     config = {
         "output_dir": str(tmp_path / "runner"),
         "default_mode": "shadow",
         "strategy_plugins": [
             {
-                "strategy": SOXL_STRATEGY_NAME,
+                "strategy": GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
                 "plugin": PLUGIN_MARKET_REGIME_CONTROL,
                 "enabled": True,
                 "inputs": {
@@ -295,20 +296,42 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     summary = run_configured_plugins(config)
 
     result = summary["strategy_plugins"][0]
-    assert result["strategy"] == SOXL_STRATEGY_NAME
+    assert result["strategy"] == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY
     assert result["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert result["status"] == "ok"
     payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
-    assert payload["strategy"] == SOXL_STRATEGY_NAME
+    assert payload["strategy"] == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY
     assert payload["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert payload["schema_version"] in PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL]
     assert payload["canonical_route"] == "no_action"
+    assert payload["execution_controls"]["capital_impact"] == "notification_only"
+    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
+
+
+def test_strategy_plugin_runner_rejects_soxl_market_regime_control_mount(tmp_path) -> None:
+    prices_path = tmp_path / "market_regime_prices.csv"
+    _soxl_quiet_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": SOXL_STRATEGY_NAME,
+                "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                "enabled": True,
+                "inputs": {"prices": str(prices_path), "benchmark_symbol": "SOXX", "attack_symbol": "SOXL"},
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="strategy-limited"):
+        run_configured_plugins(config)
 
 
 def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> None:
     assert set(PLUGIN_COMPATIBLE_STRATEGIES[PLUGIN_MARKET_REGIME_CONTROL]) == {
+        GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
         STRATEGY_NAME,
-        SOXL_STRATEGY_NAME,
         "global_etf_rotation",
         "russell_1000_multi_factor_defensive",
         "tech_communication_pullback_enhancement",
@@ -433,9 +456,8 @@ def test_strategy_plugin_runner_uses_default_mode_when_entry_mode_is_omitted(tmp
     assert payload["execution_controls"]["notification_profile"] == "shadow_only"
 
 
-def test_strategy_plugin_runner_mounts_crisis_shadow_to_soxl_strategy(tmp_path) -> None:
+def test_strategy_plugin_runner_rejects_crisis_shadow_soxl_strategy_mount(tmp_path) -> None:
     prices_path = tmp_path / "soxl_prices.csv"
-    output_dir = tmp_path / SOXL_STRATEGY_NAME / "plugins" / PLUGIN_CRISIS_RESPONSE_SHADOW
     _soxl_quiet_prices().to_csv(prices_path, index=False)
     config = {
         "output_dir": str(tmp_path / "runner"),
@@ -455,21 +477,12 @@ def test_strategy_plugin_runner_mounts_crisis_shadow_to_soxl_strategy(tmp_path) 
                     "credit_pairs": [],
                     "rate_symbols": [],
                 },
-                "outputs": {"output_dir": str(output_dir)},
             }
         ],
     }
 
-    summary = run_configured_plugins(config)
-
-    result = summary["strategy_plugins"][0]
-    assert result["strategy"] == SOXL_STRATEGY_NAME
-    assert result["plugin"] == PLUGIN_CRISIS_RESPONSE_SHADOW
-    assert result["effective_mode"] == "shadow"
-    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
-    assert payload["strategy"] == SOXL_STRATEGY_NAME
-    assert payload["evidence"]["metrics"]["benchmark_symbol"] == "SOXX"
-    assert payload["execution_controls"]["broker_order_allowed"] is False
+    with pytest.raises(ValueError, match="strategy-limited"):
+        run_configured_plugins(config)
 
 
 def test_strategy_plugin_runner_filters_by_strategy(tmp_path) -> None:

@@ -33,11 +33,12 @@ taco_enabled = true
 output_dir = "data/output/tqqq_growth_income/plugins/market_regime_control"
 
 [[strategy_plugins]]
-strategy = "soxl_soxx_trend_income"
+strategy = "market_regime_notification"
 plugin = "market_regime_control"
 enabled = true
-# SOXL uses the same macro/crisis contract. TACO stays disabled because the
-# current rebound-event playbook is calibrated for TQQQ/QQQ.
+# General market-regime notification. This artifact is not mounted into the
+# SOXL/SOXX strategy runtime; sector-levered SOXL keeps its own validated SOXX
+# volatility gate and humans decide whether broad macro/crisis notices matter.
 
 [strategy_plugins.inputs]
 prices = "data/output/market_regime_control/input/soxl_price_history.csv"
@@ -58,7 +59,7 @@ crisis_enabled = true
 macro_enabled = true
 
 [strategy_plugins.outputs]
-output_dir = "data/output/soxl_soxx_trend_income/plugins/market_regime_control"
+output_dir = "data/output/market_regime_notification/plugins/market_regime_control"
 
 # Deprecated compatibility mounts. They remain runnable for historical
 # backtests and downstream consumers that have not migrated to

@@ -38,9 +38,11 @@ send notifications; plugin research and signal generation live here.
   index are kept as watch-only evidence and do not contribute to the actionable
   trading score.
 - `market_regime_control`: unified deterministic facade for crisis, macro, and
-  TACO signals. Levered strategies can consume position controls directly;
-  stock/ETF rotation strategies should consume the same artifact through their
-  local risk-scaling policy and keep TACO as notification-only.
+  TACO signals. Only strategies with positive backtest evidence should mount
+  position controls for automated consumption; SOXL/SOXX currently receives
+  broad macro/crisis signals as general notifications only. Stock/ETF rotation
+  strategies should consume the same artifact through their local risk-scaling
+  policy and keep TACO as notification-only.
 - `taco_rebound_shadow`: TQQQ-only event-rebound context notifier. It writes
   manual-review artifacts and never recommends position size or changes
   allocations. Softening/de-escalation events stay watch-only until post-event

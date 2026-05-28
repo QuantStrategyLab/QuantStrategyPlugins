@@ -49,6 +49,21 @@ qsp-build-crisis-response-shadow-signal \
   --output-dir data/output/tqqq_growth_income/plugins/crisis_response_shadow
 ```
 
+生成宏观和统一市场状态插件使用的公开硬数据 `external_context` CSV：
+
+```bash
+qsp-build-macro-external-context \
+  --start 1999-01-01 \
+  --output data/output/market_regime_control/input/external_context.csv
+```
+
+构建器会尽量下载公开 FRED/CBOE 字段：VIX、VIX3M、VVIX、SKEW、Cboe
+put/call、HY/IG OAS、金融压力指数、收益率曲线、贸易加权美元压力和
+TED/funding stress。CNN Fear & Greed、AAII、NAAIM、五角大楼比萨指数、
+MOVE、市场宽度等没有稳定免登录历史源的字段，可以通过 `--manual-context`
+提供。OAS 覆盖范围以 FRED 公开 graph endpoint 实际返回为准；如果需要更早的
+本地归档 OAS 历史，也通过同一个 manual context 注入。
+
 AI audit 使用环境变量读取 API 配置：
 
 - `QSP_STRATEGY_PLUGIN_AI_AUDIT_CODEX_ENABLED`，默认 `true`

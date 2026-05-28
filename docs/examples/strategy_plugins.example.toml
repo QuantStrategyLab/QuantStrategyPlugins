@@ -12,6 +12,8 @@ enabled = true
 
 [strategy_plugins.inputs]
 prices = "data/output/market_regime_control/input/tqqq_price_history.csv"
+# Build with:
+# qsp-build-macro-external-context --start 1999-01-01 --output data/output/market_regime_control/input/external_context.csv
 external_context = "data/output/market_regime_control/input/external_context.csv"
 event_set = "geopolitical-deescalation"
 benchmark_symbol = "QQQ"

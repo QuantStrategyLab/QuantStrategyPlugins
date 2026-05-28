@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-strategy-plugins"
-version = "0.1.1"
+version = "0.1.2"
 description = "Open sidecar strategy plugins that emit QuantPlatformKit-compatible signal artifacts."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,6 +22,7 @@ test = ["pytest>=8", "ruff>=0.8"]
 
 [project.scripts]
 qsp-build-crisis-response-shadow-signal = "quant_strategy_plugins.crisis_response_shadow_plugin:main"
+qsp-build-macro-external-context = "quant_strategy_plugins.macro_external_context:main"
 qsp-build-macro-risk-governor-signal = "quant_strategy_plugins.macro_risk_governor_plugin:main"
 qsp-build-taco-rebound-shadow-signal = "quant_strategy_plugins.taco_rebound_shadow_plugin:main"
 qsp-run-strategy-plugins = "quant_strategy_plugins.strategy_plugin_runner:main"

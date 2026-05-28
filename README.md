@@ -71,6 +71,23 @@ qsp-build-crisis-response-shadow-signal \
   --output-dir data/output/tqqq_growth_income/plugins/crisis_response_shadow
 ```
 
+Build the public hard-data `external_context` CSV used by macro and unified
+market-regime plugins:
+
+```bash
+qsp-build-macro-external-context \
+  --start 1999-01-01 \
+  --output data/output/market_regime_control/input/external_context.csv
+```
+
+The builder downloads public FRED/CBOE fields when available: VIX, VIX3M,
+VVIX, SKEW, Cboe put/call ratios, HY/IG OAS, financial-stress indices, yield
+curves, trade-weighted dollar stress, and TED/funding stress. Fields without a
+stable no-login historical feed, such as CNN Fear & Greed, AAII, NAAIM,
+Pentagon pizza, MOVE, and breadth, can be supplied with `--manual-context`.
+OAS coverage follows what the public FRED graph endpoint returns; archived
+local OAS history can be injected with the same manual context path.
+
 AI audit reads API settings from environment variables:
 
 - `QSP_STRATEGY_PLUGIN_AI_AUDIT_CODEX_ENABLED`, default `true`

@@ -440,6 +440,21 @@ def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[
         "fear_greed_extreme_fear_level",
         "put_call_watch_level",
         "safe_haven_demand_watch_level",
+        "vix_term_structure_watch_level",
+        "vvix_watch_level",
+        "skew_watch_level",
+        "move_watch_level",
+        "ig_oas_watch_level",
+        "ig_oas_delta_threshold",
+        "funding_stress_watch_level",
+        "yield_curve_inversion_watch_level",
+        "dollar_stress_return_threshold",
+        "pct_above_200d_watch_level",
+        "pct_above_50d_watch_level",
+        "new_high_new_low_spread_watch_level",
+        "advance_decline_drawdown_watch_level",
+        "aaii_bear_bull_spread_watch_level",
+        "naaim_exposure_watch_level",
         "watch_score_threshold",
         "delever_score_threshold",
         "crisis_score_threshold",
@@ -474,6 +489,8 @@ def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[
             kwargs[key] = _as_bool(plugin_config[key])
     if "vix_symbols" in plugin_config:
         kwargs["vix_symbols"] = _as_str_tuple(plugin_config["vix_symbols"])
+    if "vix3m_symbols" in plugin_config:
+        kwargs["vix3m_symbols"] = _as_str_tuple(plugin_config["vix3m_symbols"])
     if "credit_pairs" in plugin_config:
         kwargs["credit_pairs"] = _as_credit_pairs(plugin_config["credit_pairs"])
     return kwargs

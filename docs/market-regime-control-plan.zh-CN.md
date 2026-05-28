@@ -26,7 +26,7 @@
 - `crisis_response_shadow`
   负责硬危机防守。`true_crisis` 和泡沫脆弱性触发后，统一插件输出 `risk_off` / `defend`，仓位目标交给策略侧 opt-in 执行。
 - `macro_risk_governor`
-  负责宏观降杠杆。它看价格趋势、实现波动、VIX、信用相对压力和可选金融压力字段，输出 `risk_reduced` 或 `risk_off`。Fear & Greed、put/call、safe-haven demand 和五角大楼比萨指数只作为 watch-only 证据，先用于通知和回测观察。
+  负责宏观降杠杆。它看价格趋势、实现波动、VIX、信用相对压力和可选金融压力字段，输出 `risk_reduced` 或 `risk_off`。Fear & Greed、put/call、safe-haven demand、VVIX、SKEW、MOVE、收益率曲线、美元压力、市场宽度、AAII/NAAIM 和五角大楼比萨指数只作为 watch-only 证据，先用于通知和回测观察。
 - `taco_rebound_shadow`
   负责 TQQQ 事件反弹通知。它输出人工复核通知和本地 veto 线索，不直接提高仓位。
 
@@ -79,6 +79,12 @@
 - `since_version`：记录该消费权限从哪个 runner schema 开始生效。
 
 SOXL/SOXX 不出现在 `market_regime_control` 的策略级消费 registry 中；它通过 `market_regime_notification` 接收通用通知，避免配置误用把通知信号升级成自动调仓。
+
+当前观察指标分层：
+
+- 已可执行打分：价格趋势、63/252 日回撤、实现波动、VIX 水平/尖峰、信用 ETF 相对压力、高收益 OAS、金融压力指数。
+- 已接入 watch-only：五角大楼比萨指数、Fear & Greed、put/call、safe-haven demand、VIX/VIX3M 期限结构、VVIX、SKEW、MOVE、IG OAS、资金压力利差、10Y-2Y/10Y-3M 曲线、DXY 21 日压力、50/200 日市场宽度、新高新低、涨跌线回撤、AAII bearish-bullish spread、NAAIM exposure。
+- 未进入自动仓位：所有 watch-only 指标。它们只用于通知、证据归档和后续历史回测。
 
 ## 版本管理
 

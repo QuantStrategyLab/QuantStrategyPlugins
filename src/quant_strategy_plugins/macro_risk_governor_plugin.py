@@ -18,6 +18,7 @@ MACRO_RISK_GOVERNOR_PROFILE = "macro_risk_governor"
 DEFAULT_BENCHMARK_SYMBOL = "QQQ"
 DEFAULT_ATTACK_SYMBOL = "TQQQ"
 DEFAULT_VIX_SYMBOLS = ("VIX", "^VIX", "VIXCLS")
+DEFAULT_VIX3M_SYMBOLS = ("VIX3M", "^VIX3M", "VXV", "^VXV")
 DEFAULT_CREDIT_PAIRS = (("HYG", "IEF"), ("LQD", "IEF"))
 DEFAULT_OUTPUT_DIR = "data/output/macro_risk_governor"
 DEFAULT_MAX_PRICE_AGE_DAYS = 4
@@ -179,6 +180,35 @@ def _add_check(
     }
 
 
+def _add_external_watch_check(
+    checks: dict[str, dict[str, Any]],
+    external_row: pd.Series,
+    name: str,
+    aliases: Sequence[str],
+    *,
+    threshold: float,
+    direction: str,
+    weight: float = 1.0,
+) -> float | None:
+    value = _external_float(external_row, *aliases)
+    if direction == "lte":
+        active = value is not None and value <= float(threshold)
+    elif direction == "gte":
+        active = value is not None and value >= float(threshold)
+    else:
+        raise ValueError(f"unsupported watch direction: {direction!r}")
+    _add_check(
+        checks,
+        name,
+        active,
+        weight=float(weight),
+        value=value,
+        threshold=float(threshold),
+        actionable=False,
+    )
+    return value
+
+
 def _score_checks(checks: Mapping[str, Mapping[str, Any]], *, actionable_only: bool) -> float:
     score = 0.0
     for check in checks.values():
@@ -238,6 +268,7 @@ def build_macro_risk_governor_signal(
     benchmark_symbol: str = DEFAULT_BENCHMARK_SYMBOL,
     attack_symbol: str = DEFAULT_ATTACK_SYMBOL,
     vix_symbols: Sequence[str] = DEFAULT_VIX_SYMBOLS,
+    vix3m_symbols: Sequence[str] = DEFAULT_VIX3M_SYMBOLS,
     credit_pairs: Sequence[tuple[str, str]] = DEFAULT_CREDIT_PAIRS,
     max_price_age_days: int = DEFAULT_MAX_PRICE_AGE_DAYS,
     max_external_context_age_days: int = DEFAULT_MAX_EXTERNAL_CONTEXT_AGE_DAYS,
@@ -261,6 +292,21 @@ def build_macro_risk_governor_signal(
     fear_greed_extreme_fear_level: float = 25.0,
     put_call_watch_level: float = 1.20,
     safe_haven_demand_watch_level: float = 1.0,
+    vix_term_structure_watch_level: float = 1.0,
+    vvix_watch_level: float = 110.0,
+    skew_watch_level: float = 150.0,
+    move_watch_level: float = 130.0,
+    ig_oas_watch_level: float = 2.0,
+    ig_oas_delta_threshold: float = 0.5,
+    funding_stress_watch_level: float = 0.5,
+    yield_curve_inversion_watch_level: float = -0.50,
+    dollar_stress_return_threshold: float = 0.03,
+    pct_above_200d_watch_level: float = 0.35,
+    pct_above_50d_watch_level: float = 0.30,
+    new_high_new_low_spread_watch_level: float = -0.10,
+    advance_decline_drawdown_watch_level: float = -0.10,
+    aaii_bear_bull_spread_watch_level: float = 0.25,
+    naaim_exposure_watch_level: float = 40.0,
     watch_score_threshold: float = 3.0,
     delever_score_threshold: float = 5.0,
     crisis_score_threshold: float = 7.0,
@@ -345,6 +391,8 @@ def build_macro_risk_governor_signal(
     vix_symbol = _first_available_symbol(close, vix_symbols)
     vix_level = None
     vix_spike = None
+    vix3m_level = None
+    vix_term_structure = None
     if vix_symbol is not None:
         vix = pd.to_numeric(close[vix_symbol], errors="coerce")
         vix_level = _as_float(vix.loc[signal_date])
@@ -355,6 +403,21 @@ def build_macro_risk_governor_signal(
         vix_spike = _external_float(external_row, "vix_5d_change", "vix_spike_5d")
         if vix_level is not None:
             evidence["vix_symbol"] = "external_context"
+    vix3m_symbol = _first_available_symbol(close, vix3m_symbols)
+    if vix3m_symbol is not None:
+        vix3m = pd.to_numeric(close[vix3m_symbol], errors="coerce")
+        vix3m_level = _as_float(vix3m.loc[signal_date])
+    else:
+        vix3m_level = _external_float(external_row, "vix3m", "vix_3m", "vix3m_level", "vxv", "vxv_level")
+    vix_term_structure = _external_float(
+        external_row,
+        "vix_term_structure",
+        "vix_vix3m_ratio",
+        "vix3m_ratio",
+        "vix_to_vix3m",
+    )
+    if vix_term_structure is None and vix_level is not None and vix3m_level is not None and vix3m_level > 0:
+        vix_term_structure = vix_level / vix3m_level
     _add_check(
         checks,
         "vix_watch_level",
@@ -379,7 +442,23 @@ def build_macro_risk_governor_signal(
         value=vix_spike,
         threshold=float(vix_spike_threshold),
     )
-    evidence["metrics"].update({"vix_level": vix_level, "vix_spike": vix_spike})
+    _add_check(
+        checks,
+        "vix_term_structure_inverted_watch",
+        vix_term_structure is not None and vix_term_structure >= float(vix_term_structure_watch_level),
+        weight=1.0,
+        value=vix_term_structure,
+        threshold=float(vix_term_structure_watch_level),
+        actionable=False,
+    )
+    evidence["metrics"].update(
+        {
+            "vix_level": vix_level,
+            "vix_spike": vix_spike,
+            "vix3m_level": vix3m_level,
+            "vix_term_structure": vix_term_structure,
+        }
+    )
 
     credit_returns: dict[str, float | None] = {}
     credit_context_available = False
@@ -498,6 +577,175 @@ def build_macro_risk_governor_signal(
         threshold=float(safe_haven_demand_watch_level),
         actionable=False,
     )
+    vvix = _add_external_watch_check(
+        checks,
+        external_row,
+        "vvix_high_watch",
+        ("vvix", "vvix_index", "cboe_vvix"),
+        threshold=float(vvix_watch_level),
+        direction="gte",
+    )
+    skew = _add_external_watch_check(
+        checks,
+        external_row,
+        "skew_high_watch",
+        ("skew", "skew_index", "cboe_skew"),
+        threshold=float(skew_watch_level),
+        direction="gte",
+    )
+    move = _add_external_watch_check(
+        checks,
+        external_row,
+        "move_high_watch",
+        ("move", "move_index", "ice_bofaml_move", "bond_volatility_index"),
+        threshold=float(move_watch_level),
+        direction="gte",
+    )
+    ig_oas = _add_external_watch_check(
+        checks,
+        external_row,
+        "ig_oas_watch_level",
+        ("ig_oas", "investment_grade_oas", "bamLC0A0CM", "bam_lc0a0cm"),
+        threshold=float(ig_oas_watch_level),
+        direction="gte",
+        weight=1.0,
+    )
+    ig_oas_delta = _external_float(external_row, "ig_oas_delta_63d", "investment_grade_oas_delta_63d")
+    if ig_oas_delta is None:
+        ig_oas_delta = _external_delta(
+            external_context,
+            signal_date,
+            ("ig_oas", "investment_grade_oas", "bamLC0A0CM", "bam_lc0a0cm"),
+            int(hy_oas_delta_lookback_days),
+        )
+    _add_check(
+        checks,
+        "ig_oas_widening_watch",
+        ig_oas_delta is not None and ig_oas_delta >= float(ig_oas_delta_threshold),
+        weight=1.0,
+        value=ig_oas_delta,
+        threshold=float(ig_oas_delta_threshold),
+        actionable=False,
+    )
+    funding_stress = _add_external_watch_check(
+        checks,
+        external_row,
+        "funding_stress_watch",
+        (
+            "ted_spread",
+            "libor_ois_spread",
+            "sofr_ois_spread",
+            "fra_ois_spread",
+            "funding_stress",
+            "funding_stress_index",
+        ),
+        threshold=float(funding_stress_watch_level),
+        direction="gte",
+    )
+    yield_curve_10y2y = _external_float(
+        external_row,
+        "yield_curve_10y2y",
+        "10y2y",
+        "t10y2y",
+        "us10y2y",
+        "treasury_10y2y",
+    )
+    yield_curve_10y3m = _external_float(
+        external_row,
+        "yield_curve_10y3m",
+        "10y3m",
+        "t10y3m",
+        "us10y3m",
+        "treasury_10y3m",
+    )
+    yield_curve_min = min(
+        (value for value in (yield_curve_10y2y, yield_curve_10y3m) if value is not None),
+        default=None,
+    )
+    _add_check(
+        checks,
+        "yield_curve_inversion_watch",
+        yield_curve_min is not None and yield_curve_min <= float(yield_curve_inversion_watch_level),
+        weight=1.0,
+        value=yield_curve_min,
+        threshold=float(yield_curve_inversion_watch_level),
+        actionable=False,
+    )
+    dollar_return_21d = _add_external_watch_check(
+        checks,
+        external_row,
+        "dollar_stress_watch",
+        ("dxy_return_21d", "dollar_index_return_21d", "usd_return_21d", "dxy_21d_return"),
+        threshold=float(dollar_stress_return_threshold),
+        direction="gte",
+    )
+    pct_above_200d = _add_external_watch_check(
+        checks,
+        external_row,
+        "market_breadth_pct_above_200d_watch",
+        (
+            "pct_above_200d",
+            "percent_above_200d",
+            "spx_pct_above_200d",
+            "nasdaq_100_pct_above_200d",
+        ),
+        threshold=float(pct_above_200d_watch_level),
+        direction="lte",
+    )
+    pct_above_50d = _add_external_watch_check(
+        checks,
+        external_row,
+        "market_breadth_pct_above_50d_watch",
+        (
+            "pct_above_50d",
+            "percent_above_50d",
+            "spx_pct_above_50d",
+            "nasdaq_100_pct_above_50d",
+        ),
+        threshold=float(pct_above_50d_watch_level),
+        direction="lte",
+    )
+    new_high_new_low_spread = _add_external_watch_check(
+        checks,
+        external_row,
+        "new_high_new_low_spread_watch",
+        (
+            "new_high_new_low_spread",
+            "nh_nl_spread",
+            "new_highs_new_lows_spread",
+            "new_high_new_low_ratio",
+        ),
+        threshold=float(new_high_new_low_spread_watch_level),
+        direction="lte",
+    )
+    advance_decline_drawdown = _add_external_watch_check(
+        checks,
+        external_row,
+        "advance_decline_drawdown_watch",
+        (
+            "advance_decline_drawdown",
+            "ad_line_drawdown",
+            "advance_decline_line_drawdown",
+        ),
+        threshold=float(advance_decline_drawdown_watch_level),
+        direction="lte",
+    )
+    aaii_bear_bull_spread = _add_external_watch_check(
+        checks,
+        external_row,
+        "aaii_bear_bull_spread_watch",
+        ("aaii_bear_bull_spread", "aaii_bears_minus_bulls", "aaii_bearish_bullish_spread"),
+        threshold=float(aaii_bear_bull_spread_watch_level),
+        direction="gte",
+    )
+    naaim_exposure = _add_external_watch_check(
+        checks,
+        external_row,
+        "naaim_exposure_low_watch",
+        ("naaim_exposure", "naaim_exposure_index", "naaim_manager_exposure"),
+        threshold=float(naaim_exposure_watch_level),
+        direction="lte",
+    )
     realized_vol_confirmed_for_action = None
     realized_vol_check = checks.get("benchmark_realized_volatility_high")
     if realized_vol_check is not None:
@@ -529,6 +777,22 @@ def build_macro_risk_governor_signal(
             "fear_greed_index": fear_greed_index,
             "put_call_ratio": put_call_ratio,
             "safe_haven_demand": safe_haven_demand,
+            "vvix": vvix,
+            "skew": skew,
+            "move": move,
+            "ig_oas": ig_oas,
+            "ig_oas_delta_63d": ig_oas_delta,
+            "funding_stress": funding_stress,
+            "yield_curve_10y2y": yield_curve_10y2y,
+            "yield_curve_10y3m": yield_curve_10y3m,
+            "yield_curve_min": yield_curve_min,
+            "dollar_return_21d": dollar_return_21d,
+            "pct_above_200d": pct_above_200d,
+            "pct_above_50d": pct_above_50d,
+            "new_high_new_low_spread": new_high_new_low_spread,
+            "advance_decline_drawdown": advance_decline_drawdown,
+            "aaii_bear_bull_spread": aaii_bear_bull_spread,
+            "naaim_exposure": naaim_exposure,
             "benchmark_realized_volatility_requires_confirmation": bool(realized_vol_requires_confirmation),
             "benchmark_realized_volatility_confirmed_for_action": realized_vol_confirmed_for_action,
         }

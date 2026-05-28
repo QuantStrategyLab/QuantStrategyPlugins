@@ -35,9 +35,10 @@ send notifications; plugin research and signal generation live here.
   optional external financial-stress fields. The artifact can expose
   `leverage_scalar` and `risk_asset_scalar` to strategy runtimes that explicitly
   opt in through mounted metadata. OSINT-style fields such as a Pentagon pizza
-  index, plus sentiment fields such as Fear & Greed, put/call, and safe-haven
-  demand, are kept as watch-only evidence and do not contribute to the
-  actionable trading score.
+  index, plus sentiment, options-volatility, rates, breadth, funding, and
+  liquidity fields such as Fear & Greed, put/call, VVIX, SKEW, MOVE, yield
+  curves, dollar stress, and safe-haven demand, are kept as watch-only evidence
+  and do not contribute to the actionable trading score.
 - `market_regime_control`: unified deterministic facade for crisis, macro, and
   TACO signals. Only strategies with positive backtest evidence should mount
   position controls for automated consumption; SOXL/SOXX currently receives

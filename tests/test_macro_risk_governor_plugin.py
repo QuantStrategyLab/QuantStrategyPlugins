@@ -147,6 +147,65 @@ def test_macro_risk_governor_keeps_fear_greed_fields_watch_only() -> None:
     assert payload["evidence"]["metrics"]["fear_greed_index"] == 18.0
 
 
+def test_macro_risk_governor_keeps_common_external_risk_indicators_watch_only() -> None:
+    external_context = pd.DataFrame(
+        [
+            {
+                "as_of": "2025-12-31",
+                "vix_vix3m_ratio": 1.08,
+                "vvix": 125.0,
+                "skew": 160.0,
+                "move": 145.0,
+                "ig_oas": 2.6,
+                "ig_oas_delta_63d": 0.7,
+                "ted_spread": 0.8,
+                "yield_curve_10y2y": -0.8,
+                "dxy_return_21d": 0.04,
+                "pct_above_200d": 0.30,
+                "pct_above_50d": 0.25,
+                "new_high_new_low_spread": -0.20,
+                "advance_decline_drawdown": -0.15,
+                "aaii_bear_bull_spread": 0.35,
+                "naaim_exposure": 30.0,
+            }
+        ]
+    )
+
+    payload = build_macro_risk_governor_signal(
+        _macro_prices(),
+        external_context=external_context,
+        as_of="2025-12-31",
+        watch_score_threshold=1.0,
+    )
+
+    watch_checks = (
+        "vix_term_structure_inverted_watch",
+        "vvix_high_watch",
+        "skew_high_watch",
+        "move_high_watch",
+        "ig_oas_watch_level",
+        "ig_oas_widening_watch",
+        "funding_stress_watch",
+        "yield_curve_inversion_watch",
+        "dollar_stress_watch",
+        "market_breadth_pct_above_200d_watch",
+        "market_breadth_pct_above_50d_watch",
+        "new_high_new_low_spread_watch",
+        "advance_decline_drawdown_watch",
+        "aaii_bear_bull_spread_watch",
+        "naaim_exposure_low_watch",
+    )
+    assert payload["canonical_route"] == ROUTE_WATCH
+    assert payload["suggested_action"] == "watch_only"
+    assert payload["would_trade_if_enabled"] is False
+    assert payload["actionable_score"] == 0.0
+    for check_name in watch_checks:
+        assert payload["checks"][check_name]["active"] is True
+        assert payload["checks"][check_name]["actionable"] is False
+    assert payload["evidence"]["metrics"]["vix_term_structure"] == 1.08
+    assert payload["evidence"]["metrics"]["yield_curve_min"] == -0.8
+
+
 def test_macro_risk_governor_requires_confirmation_for_realized_volatility_action() -> None:
     payload = build_macro_risk_governor_signal(
         _macro_prices(volatility_spike=True),

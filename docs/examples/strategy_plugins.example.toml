@@ -17,6 +17,7 @@ event_set = "geopolitical-deescalation"
 benchmark_symbol = "QQQ"
 attack_symbol = "TQQQ"
 vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
 credit_pairs = ["HYG:IEF", "LQD:IEF"]
 financial_symbols = ["XLF", "KRE"]
 rate_symbols = ["IEF", "TLT"]
@@ -47,6 +48,7 @@ event_set = "full"
 benchmark_symbol = "SOXX"
 attack_symbol = "SOXL"
 vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
 credit_pairs = ["HYG:IEF", "LQD:IEF"]
 financial_symbols = ["XLF", "KRE"]
 rate_symbols = ["IEF", "TLT"]
@@ -93,6 +95,7 @@ external_context = "data/output/macro_risk_governor/input/external_context.csv"
 benchmark_symbol = "QQQ"
 attack_symbol = "TQQQ"
 vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
 credit_pairs = ["HYG:IEF", "LQD:IEF"]
 
 [strategy_plugins.outputs]

@@ -8,8 +8,11 @@ import pytest
 
 from quant_strategy_plugins.crisis_response_research import ROUTE_TRUE_CRISIS
 from quant_strategy_plugins.strategy_plugin_runner import (
+    EVIDENCE_AUTOMATION_APPROVED,
+    EVIDENCE_NOTIFICATION_ONLY,
     GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
     PLUGIN_COMPATIBLE_STRATEGIES,
+    PLUGIN_CONSUMPTION_POLICY_REGISTRY,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
     PLUGIN_DEPRECATED_SUCCESSORS,
     PLUGIN_MARKET_REGIME_CONTROL,
@@ -263,6 +266,9 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["position_control"]["risk_asset_scalar"] == 0.0
     assert payload["position_control"]["taco_allowed"] is False
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
+    assert payload["execution_controls"]["position_control_allowed"] is True
+    assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_AUTOMATION_APPROVED
+    assert payload["consumption_policy"]["position_control_allowed"] is True
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
 
@@ -306,6 +312,9 @@ def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path
     assert payload["canonical_route"] == "no_action"
     assert payload["execution_controls"]["capital_impact"] == "notification_only"
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
+    assert payload["execution_controls"]["position_control_allowed"] is False
+    assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
+    assert payload["consumption_policy"]["strategy"] == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY
 
 
 def test_strategy_plugin_runner_rejects_soxl_market_regime_control_mount(tmp_path) -> None:
@@ -341,6 +350,16 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_CRISIS_RESPONSE_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_MACRO_RISK_GOVERNOR] == PLUGIN_MARKET_REGIME_CONTROL
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_TACO_REBOUND_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
+    assert (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        SOXL_STRATEGY_NAME,
+    ) not in PLUGIN_CONSUMPTION_POLICY_REGISTRY
+    assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
+        (PLUGIN_MARKET_REGIME_CONTROL, GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY)
+    ].position_control_allowed is False
+    assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
+        (PLUGIN_MARKET_REGIME_CONTROL, STRATEGY_NAME)
+    ].position_control_allowed is True
 
 
 def test_strategy_plugin_runner_rehearses_triggered_shadow_artifact_without_execution_permissions(tmp_path) -> None:

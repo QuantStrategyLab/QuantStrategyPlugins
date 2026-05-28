@@ -258,6 +258,9 @@ def build_macro_risk_governor_signal(
     hy_oas_delta_threshold: float = 1.0,
     financial_stress_watch_level: float = 1.0,
     pizza_index_watch_level: float = 2.0,
+    fear_greed_extreme_fear_level: float = 25.0,
+    put_call_watch_level: float = 1.20,
+    safe_haven_demand_watch_level: float = 1.0,
     watch_score_threshold: float = 3.0,
     delever_score_threshold: float = 5.0,
     crisis_score_threshold: float = 7.0,
@@ -448,6 +451,53 @@ def build_macro_risk_governor_signal(
         threshold=float(pizza_index_watch_level),
         actionable=False,
     )
+    fear_greed_index = _external_float(
+        external_row,
+        "fear_greed_index",
+        "fear_and_greed_index",
+        "cnn_fear_greed_index",
+        "cnn_fear_and_greed_index",
+    )
+    _add_check(
+        checks,
+        "fear_greed_extreme_fear_watch",
+        fear_greed_index is not None and fear_greed_index <= float(fear_greed_extreme_fear_level),
+        weight=1.0,
+        value=fear_greed_index,
+        threshold=float(fear_greed_extreme_fear_level),
+        actionable=False,
+    )
+    put_call_ratio = _external_float(
+        external_row,
+        "put_call_ratio",
+        "equity_put_call_ratio",
+        "cboe_put_call_ratio",
+        "put_call",
+    )
+    _add_check(
+        checks,
+        "put_call_stress_watch",
+        put_call_ratio is not None and put_call_ratio >= float(put_call_watch_level),
+        weight=1.0,
+        value=put_call_ratio,
+        threshold=float(put_call_watch_level),
+        actionable=False,
+    )
+    safe_haven_demand = _external_float(
+        external_row,
+        "safe_haven_demand",
+        "safe_haven_demand_index",
+        "safe_haven_demand_zscore",
+    )
+    _add_check(
+        checks,
+        "safe_haven_demand_watch",
+        safe_haven_demand is not None and safe_haven_demand >= float(safe_haven_demand_watch_level),
+        weight=1.0,
+        value=safe_haven_demand,
+        threshold=float(safe_haven_demand_watch_level),
+        actionable=False,
+    )
     realized_vol_confirmed_for_action = None
     realized_vol_check = checks.get("benchmark_realized_volatility_high")
     if realized_vol_check is not None:
@@ -476,6 +526,9 @@ def build_macro_risk_governor_signal(
             "hy_oas_delta_63d": hy_oas_delta,
             "financial_stress": financial_stress,
             "pentagon_pizza_index": pizza_index,
+            "fear_greed_index": fear_greed_index,
+            "put_call_ratio": put_call_ratio,
+            "safe_haven_demand": safe_haven_demand,
             "benchmark_realized_volatility_requires_confirmation": bool(realized_vol_requires_confirmation),
             "benchmark_realized_volatility_confirmed_for_action": realized_vol_confirmed_for_action,
         }

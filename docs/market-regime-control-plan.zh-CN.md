@@ -26,7 +26,7 @@
 - `crisis_response_shadow`
   负责硬危机防守。`true_crisis` 和泡沫脆弱性触发后，统一插件输出 `risk_off` / `defend`，仓位目标交给策略侧 opt-in 执行。
 - `macro_risk_governor`
-  负责宏观降杠杆。它看价格趋势、实现波动、VIX、信用相对压力和可选金融压力字段，输出 `risk_reduced` 或 `risk_off`。
+  负责宏观降杠杆。它看价格趋势、实现波动、VIX、信用相对压力和可选金融压力字段，输出 `risk_reduced` 或 `risk_off`。Fear & Greed、put/call、safe-haven demand 和五角大楼比萨指数只作为 watch-only 证据，先用于通知和回测观察。
 - `taco_rebound_shadow`
   负责 TQQQ 事件反弹通知。它输出人工复核通知和本地 veto 线索，不直接提高仓位。
 
@@ -71,6 +71,15 @@
 
 旧插件仍可运行历史回测和兼容输出，但新策略集成应优先挂载 `market_regime_control`。
 
+策略插件 runner 使用显式消费权限 registry，而不是只维护松散 allowlist：
+
+- `notification_allowed`：允许生成和分发通知 artifact。
+- `position_control_allowed`：允许策略 runtime 自动消费仓位控制字段。
+- `evidence_status`：记录该策略/插件组合是 `automation_approved`、`notification_only` 还是 `deprecated_compatibility`。
+- `since_version`：记录该消费权限从哪个 runner schema 开始生效。
+
+SOXL/SOXX 不出现在 `market_regime_control` 的策略级消费 registry 中；它通过 `market_regime_notification` 接收通用通知，避免配置误用把通知信号升级成自动调仓。
+
 ## 版本管理
 
 当前对外契约是：
@@ -78,6 +87,7 @@
 - 统一插件 schema：`market_regime_control.v1`
 - 仲裁器 schema：`market_regime_arbiter.v1`
 - 运行器总 schema：`strategy_plugins.v1`
+- 策略消费权限 schema：随 `strategy_plugins.v1` 通过 `consumption_policy` 输出
 
 升级原则：
 

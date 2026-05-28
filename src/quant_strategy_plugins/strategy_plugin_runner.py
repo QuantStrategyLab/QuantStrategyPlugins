@@ -39,19 +39,9 @@ PLUGIN_MARKET_REGIME_CONTROL = MARKET_REGIME_CONTROL_PROFILE
 PLUGIN_MACRO_RISK_GOVERNOR = MACRO_RISK_GOVERNOR_PROFILE
 PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
-PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
-    PLUGIN_CRISIS_RESPONSE_SHADOW: ("tqqq_growth_income",),
-    PLUGIN_MARKET_REGIME_CONTROL: (
-        GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
-        "tqqq_growth_income",
-        "global_etf_rotation",
-        "russell_1000_multi_factor_defensive",
-        "tech_communication_pullback_enhancement",
-        "mega_cap_leader_rotation_top50_balanced",
-    ),
-    PLUGIN_MACRO_RISK_GOVERNOR: ("tqqq_growth_income",),
-    PLUGIN_TACO_REBOUND_SHADOW: ("tqqq_growth_income",),
-}
+EVIDENCE_AUTOMATION_APPROVED = "automation_approved"
+EVIDENCE_NOTIFICATION_ONLY = "notification_only"
+EVIDENCE_DEPRECATED_COMPATIBILITY = "deprecated_compatibility"
 PLUGIN_SCHEMA_VERSIONS: dict[str, tuple[str, ...]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: ("crisis_response_shadow.v1",),
     PLUGIN_MARKET_REGIME_CONTROL: ("market_regime_control.v1",),
@@ -77,6 +67,115 @@ class PluginRunResult:
     output_dir: str | None = None
     latest_signal_path: str | None = None
     message: str = ""
+
+
+@dataclass(frozen=True)
+class PluginConsumptionPolicy:
+    plugin: str
+    strategy: str
+    notification_allowed: bool
+    position_control_allowed: bool
+    evidence_status: str
+    since_version: str
+    description: str
+    intended_strategy_role: str | None = None
+
+
+PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy=GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY,
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
+        since_version="strategy_plugins.v1",
+        description="General market-regime notice. Not mounted into an automated strategy runtime.",
+        intended_strategy_role="general_market_regime_notification",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Backtested automatic macro/crisis risk controls for the TQQQ growth-income strategy.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="global_etf_rotation",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for broad ETF rotation.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="russell_1000_multi_factor_defensive",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for the Russell 1000 defensive sleeve.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="tech_communication_pullback_enhancement",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for the tech/communication pullback profile.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="mega_cap_leader_rotation_top50_balanced",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Local risk-scaling consumer for the mega-cap leader rotation profile.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_DEPRECATED_COMPATIBILITY,
+        since_version="strategy_plugins.v1",
+        description="Deprecated direct crisis shadow mount kept for historical replay; new consumers use market_regime_control.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_DEPRECATED_COMPATIBILITY,
+        since_version="strategy_plugins.v1",
+        description="Deprecated direct macro governor mount kept for historical replay; new consumers use market_regime_control.",
+    ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_TACO_REBOUND_SHADOW,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
+        since_version="strategy_plugins.v1",
+        description="Manual-review event rebound notifier for TQQQ only.",
+    ),
+)
+PLUGIN_CONSUMPTION_POLICY_REGISTRY: dict[tuple[str, str], PluginConsumptionPolicy] = {
+    (policy.plugin, policy.strategy): policy for policy in PLUGIN_CONSUMPTION_POLICIES
+}
+PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
+    plugin: tuple(
+        policy.strategy
+        for policy in PLUGIN_CONSUMPTION_POLICIES
+        if policy.plugin == plugin and policy.notification_allowed
+    )
+    for plugin in sorted({policy.plugin for policy in PLUGIN_CONSUMPTION_POLICIES})
+}
 
 
 PluginRunner = Callable[[Mapping[str, Any], str], PluginRunResult]
@@ -159,12 +258,17 @@ def _validate_plugin_strategy(plugin_name: str, strategy: str) -> None:
         raise ValueError(
             f"{plugin_name} is research-only and cannot be mounted to {strategy!r}: {research_only_reason}"
         )
-    compatible = PLUGIN_COMPATIBLE_STRATEGIES.get(plugin_name, ())
-    if compatible and strategy not in compatible:
-        choices = ", ".join(compatible)
+    policy = PLUGIN_CONSUMPTION_POLICY_REGISTRY.get((plugin_name, strategy))
+    if policy is None or not policy.notification_allowed:
+        compatible = PLUGIN_COMPATIBLE_STRATEGIES.get(plugin_name, ())
+        choices = ", ".join(compatible) if compatible else "(none)"
         raise ValueError(
             f"{plugin_name} is strategy-limited and can only be mounted to: {choices}; got strategy={strategy!r}"
         )
+
+
+def _plugin_consumption_policy(plugin_name: str, strategy: str) -> PluginConsumptionPolicy | None:
+    return PLUGIN_CONSUMPTION_POLICY_REGISTRY.get((plugin_name, strategy))
 
 
 def _flatten_strategy_plugin_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
@@ -333,6 +437,9 @@ def _build_macro_risk_governor_kwargs(plugin_config: Mapping[str, Any]) -> dict[
         "hy_oas_delta_threshold",
         "financial_stress_watch_level",
         "pizza_index_watch_level",
+        "fear_greed_extreme_fear_level",
+        "put_call_watch_level",
+        "safe_haven_demand_watch_level",
         "watch_score_threshold",
         "delever_score_threshold",
         "crisis_score_threshold",
@@ -389,13 +496,22 @@ def _mode_execution_controls(mode: str) -> dict[str, Any]:
         raise ValueError(f"unsupported plugin mode: {mode!r}") from exc
 
 
-def _apply_plugin_contract(payload: Mapping[str, Any], *, strategy: str, plugin: str, mode: str) -> dict[str, Any]:
+def _apply_plugin_contract(
+    payload: Mapping[str, Any],
+    *,
+    strategy: str,
+    plugin: str,
+    mode: str,
+    consumption_policy: PluginConsumptionPolicy | None = None,
+) -> dict[str, Any]:
     contracted_payload = dict(payload)
     contracted_payload["strategy"] = strategy
     contracted_payload["plugin"] = plugin
     contracted_payload["mode"] = mode
     contracted_payload["configured_mode"] = mode
     contracted_payload["effective_mode"] = mode
+    if consumption_policy is not None:
+        contracted_payload["consumption_policy"] = asdict(consumption_policy)
 
     execution_controls = dict(contracted_payload.get("execution_controls") or {})
     execution_controls.update(_mode_execution_controls(mode))
@@ -403,7 +519,11 @@ def _apply_plugin_contract(payload: Mapping[str, Any], *, strategy: str, plugin:
     execution_controls["effective_mode"] = mode
     execution_controls["repository_broker_write_allowed"] = False
     execution_controls["repository_allocation_mutation_allowed"] = False
-    if strategy == GENERAL_MARKET_REGIME_NOTIFICATION_STRATEGY:
+    if consumption_policy is not None:
+        execution_controls["notification_allowed"] = bool(consumption_policy.notification_allowed)
+        execution_controls["position_control_allowed"] = bool(consumption_policy.position_control_allowed)
+        execution_controls["consumption_evidence_status"] = consumption_policy.evidence_status
+    if consumption_policy is not None and consumption_policy.intended_strategy_role == "general_market_regime_notification":
         execution_controls["capital_impact"] = "notification_only"
         execution_controls["strategy_runtime_metadata_allowed"] = False
         execution_controls["position_control_shadow_only"] = True
@@ -482,12 +602,20 @@ def _run_table_strategy_plugin(
             message="plugin disabled",
         )
     _validate_plugin_mode(plugin, mode)
+    _validate_plugin_strategy(plugin, strategy)
+    consumption_policy = _plugin_consumption_policy(plugin, strategy)
 
     prices_path = str(plugin_config.get("prices", "")).strip()
     if not prices_path:
         raise ValueError(f"{plugin} for strategy={strategy} requires a prices path")
     payload = spec.build_payload(read_table(prices_path), plugin_config)
-    payload = _apply_plugin_contract(payload, strategy=strategy, plugin=plugin, mode=mode)
+    payload = _apply_plugin_contract(
+        payload,
+        strategy=strategy,
+        plugin=plugin,
+        mode=mode,
+        consumption_policy=consumption_policy,
+    )
     paths = spec.write_outputs(payload, output_dir)
     return PluginRunResult(
         strategy=strategy,
@@ -640,9 +768,12 @@ __all__ = [
     "PLUGIN_MACRO_RISK_GOVERNOR",
     "PLUGIN_TACO_REBOUND_SHADOW",
     "PLUGIN_COMPATIBLE_STRATEGIES",
+    "PLUGIN_CONSUMPTION_POLICIES",
+    "PLUGIN_CONSUMPTION_POLICY_REGISTRY",
     "PLUGIN_DEPRECATED_SUCCESSORS",
     "PLUGIN_RESEARCH_ONLY_REASONS",
     "PLUGIN_SCHEMA_VERSIONS",
+    "PluginConsumptionPolicy",
     "PluginRunResult",
     "load_plugin_config",
     "main",

@@ -114,6 +114,39 @@ def test_macro_risk_governor_keeps_pizza_index_watch_only() -> None:
     assert payload["checks"]["pentagon_pizza_watch"]["actionable"] is False
 
 
+def test_macro_risk_governor_keeps_fear_greed_fields_watch_only() -> None:
+    external_context = pd.DataFrame(
+        [
+            {
+                "as_of": "2025-12-31",
+                "fear_greed_index": 18.0,
+                "put_call_ratio": 1.35,
+                "safe_haven_demand": 1.4,
+            }
+        ]
+    )
+
+    payload = build_macro_risk_governor_signal(
+        _macro_prices(),
+        external_context=external_context,
+        as_of="2025-12-31",
+        watch_score_threshold=1.0,
+    )
+
+    assert payload["canonical_route"] == ROUTE_WATCH
+    assert payload["suggested_action"] == "watch_only"
+    assert payload["would_trade_if_enabled"] is False
+    assert payload["actionable_score"] == 0.0
+    assert payload["total_score"] == 3.0
+    assert payload["checks"]["fear_greed_extreme_fear_watch"]["active"] is True
+    assert payload["checks"]["fear_greed_extreme_fear_watch"]["actionable"] is False
+    assert payload["checks"]["put_call_stress_watch"]["active"] is True
+    assert payload["checks"]["put_call_stress_watch"]["actionable"] is False
+    assert payload["checks"]["safe_haven_demand_watch"]["active"] is True
+    assert payload["checks"]["safe_haven_demand_watch"]["actionable"] is False
+    assert payload["evidence"]["metrics"]["fear_greed_index"] == 18.0
+
+
 def test_macro_risk_governor_requires_confirmation_for_realized_volatility_action() -> None:
     payload = build_macro_risk_governor_signal(
         _macro_prices(volatility_spike=True),

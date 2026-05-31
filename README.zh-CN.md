@@ -2,6 +2,16 @@
 
 > ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
 
+
+## English summary
+
+- Full English version: [`README.md`](README.md). This summary keeps an English entry point in the Chinese file.
+- Purpose: this document covers `QuantStrategyPlugins` for `QuantStrategyPlugins`.
+- Main topics: `开源范围`, `不进入开源仓库的内容`, `插件`, `使用方式`, `通知和日志 i18n`.
+- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
+- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
+- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+
 QuantStrategyLab 的开源侧车策略插件仓库。
 
 文档：[English](README.md) | 简体中文

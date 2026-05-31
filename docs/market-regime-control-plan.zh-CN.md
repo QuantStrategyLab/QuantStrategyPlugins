@@ -1,5 +1,15 @@
 # Market Regime Control 统一插件方案
 
+
+## English summary
+
+- Full English version: [`market-regime-control-plan.md`](market-regime-control-plan.md). This summary keeps an English entry point in the Chinese file.
+- Purpose: this document covers `Market Regime Control 统一插件方案` for `QuantStrategyPlugins`.
+- Main topics: `目标`, `组件职责`, `仲裁优先级`, `策略消费方式`, `版本管理`.
+- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
+- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
+- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+
 [English](./market-regime-control-plan.md)
 
 本文档记录 `market_regime_control` 的当前设计边界、信号优先级、策略消费方式和回测结论。

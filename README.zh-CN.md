@@ -1,5 +1,7 @@
 # QuantStrategyPlugins
 
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+
 QuantStrategyLab 的开源侧车策略插件仓库。
 
 文档：[English](README.md) | 简体中文

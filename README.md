@@ -1,5 +1,36 @@
 # QuantStrategyPlugins
 
+<!-- qsl-doc-overview:start -->
+
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+
+## Open-source overview / 开源项目入口
+
+| Item | Description |
+| --- | --- |
+| Project type | plugin package |
+| What it does | Sidecar strategy plugins for risk regime, crisis context and notification-only overlays used by QuantStrategyLab runtimes. |
+| 中文说明 | 策略 sidecar 插件包，用于风险状态、危机上下文和通知/影子信号，不直接替代核心策略。 |
+| Current status | Plugin package. Plugins should be mounted only when backtest evidence and runtime policy explicitly allow them. |
+
+### Quick start
+
+- `python -m pip install -e '.[test]'`
+- `python -m pytest -q`
+
+### Deploy / operate safely
+
+Publish through platform or snapshot plugin workflows; keep notification-only plugins out of execution paths unless explicitly accepted.
+
+### Strategy performance / evidence boundary
+
+See `docs/market-regime-control-plan.md` and `.zh-CN.md` for CAGR/drawdown impact and watch-only versus actionable signal policy.
+
+> Detailed runbooks, migration notes, workflow internals, and historical decisions are kept below. Start with this overview before using the lower-level operational sections.
+
+<!-- qsl-doc-overview:end -->
+
 > ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
 
 

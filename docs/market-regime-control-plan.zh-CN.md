@@ -78,7 +78,7 @@
   默认消费 `position_control`。`risk_off` 降到现金类或非风险资产；`risk_reduced` 按策略配置降低杠杆或风险预算；TACO 只触发人工复核和本地 veto。
 - SOXL/SOXX 趋势收益策略
   不默认挂载统一插件，也不消费 `position_control`。SOXL 继续只使用已经通过复核的 SOXX 自身趋势和波动率降杠杆门；宏观、危机和 OSINT 信号只进入通用通知，由人工决定是否干预。
-- Global ETF、Russell 1000、Tech/Communication、Mega Cap 类轮动策略
+- Global ETF、Russell 1000、Mega Cap 类轮动策略
   默认支持统一插件。`risk_reduced` 建议做 50% 风险预算缩放，`risk_off` 建议归零风险资产预算。
 - DCA 或收入型低频策略
   默认 notification-only，允许用户显式开启仓位影响。

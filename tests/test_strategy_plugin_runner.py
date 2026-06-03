@@ -425,7 +425,6 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
         STRATEGY_NAME,
         "global_etf_rotation",
         "russell_1000_multi_factor_defensive",
-        "tech_communication_pullback_enhancement",
         "mega_cap_leader_rotation_top50_balanced",
     }
     assert set(PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS[PLUGIN_MARKET_REGIME_CONTROL]) == {

@@ -2,63 +2,41 @@
 
 [Chinese README](README.zh-CN.md)
 
-> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+> Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
 
-## What this project does
+## What this repository is
 
-QuantStrategyPlugins is a **Plugin package** in the QuantStrategyLab ecosystem. It provides open sidecar strategy plugins that QuantStrategyLab runtimes can load without changing platform code.
+QuantStrategyPlugins is a QuantStrategyLab strategy plugin package. It provides sidecar strategy plugins such as market-regime controls, notification artifacts, and research-only plugin outputs.
 
-## Who this is for
+It supports the system but does not decide which strategy should be live. Strategy eligibility remains in the strategy and snapshot repositories; broker execution remains in the platform repositories.
 
-- Engineers and researchers who want to inspect, reproduce, or extend this part of the QuantStrategyLab stack.
-- Operators who need a clear entry point before reading the deeper runbooks or workflow files.
-- Reviewers who need to understand the repository purpose, safety boundary, and evidence requirements before enabling automation.
+## Design boundary
 
-## Current status
-
-Extension package; plugin eligibility still depends on strategy validation.
+- Keep contracts stable and versioned where downstream repositories depend on them.
+- Prefer backward-compatible changes unless a coordinated migration is planned.
+- Keep secrets and environment-specific settings outside the shared library code.
+- Document changes that affect multiple platforms or strategy packages.
 
 ## Repository layout
 
-- `src/`: main library and runtime code.
-- `tests/`: unit and contract tests.
-- `docs/`: detailed design notes, runbooks, and evidence docs.
-- `.github/workflows/`: CI, scheduled jobs, and deployment workflows.
+- `src/`: library and runtime code.
+- `tests/`: unit, contract, and regression tests.
+- `docs/`: runbooks, design notes, evidence, and integration contracts.
+- `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
 - `scripts/`: operator scripts and local helpers.
 
 ## Quick start
-
-From a fresh clone:
 
 ```bash
 python -m pip install -e .
 python -m pytest -q
 ```
 
-If a command requires credentials, run it only after reading the relevant workflow or runbook and configuring secrets outside Git.
+## Useful docs
 
-## Deployment and operation
-
-Install or package the plugins with the target runtime, then point the platform loader to the plugin entrypoint. Validate in dry-run before enabling live execution.
-
-Prefer manual or dry-run execution first. Enable schedules or live execution only after logs, artifacts, permissions, and rollback steps are reviewed.
-
-## Strategy performance and evidence
-
-Plugin code does not make a strategy live-ready by itself. Use the associated strategy research artifacts to evaluate returns, drawdowns, benchmark comparison, and robustness.
-
-README files are intentionally not a source of dated performance promises. Re-run the relevant tests, backtests, or pipeline jobs before relying on any result.
-
-## Safety notes
-
-- Never commit API keys, broker credentials, OAuth tokens, cookies, or account identifiers.
-- Run new strategies and platform changes in dry-run or paper mode before any live execution.
-- Review generated orders, artifacts, and logs manually before enabling schedules.
-
-## Contributing
-
-Keep changes small, reproducible, and covered by the narrowest useful tests. For strategy-facing changes, include the evidence artifact or command used to validate behavior.
+- [`docs/market-regime-control-plan.md`](docs/market-regime-control-plan.md)
+- [`docs/market-regime-control-plan.zh-CN.md`](docs/market-regime-control-plan.zh-CN.md)
 
 ## License
 
-See [LICENSE](LICENSE) if present in this repository.
+See [LICENSE](LICENSE).

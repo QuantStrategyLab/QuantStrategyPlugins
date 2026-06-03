@@ -115,7 +115,7 @@ Recommended policy:
   `position_control`. SOXL keeps its own reviewed SOXX trend and volatility
   de-leveraging gates. Macro, crisis, and OSINT signals are delivered as general
   notifications for manual review.
-- Global ETF, Russell 1000, Tech/Communication, and Mega Cap rotation
+- Global ETF, Russell 1000, and Mega Cap rotation
   strategies
   Support the unified plugin by default. `risk_reduced` should apply a 50% risk
   budget scale; `risk_off` should zero the risk-asset budget.

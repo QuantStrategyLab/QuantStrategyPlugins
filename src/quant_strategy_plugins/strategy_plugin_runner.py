@@ -129,15 +129,6 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
-        strategy="tech_communication_pullback_enhancement",
-        notification_allowed=True,
-        position_control_allowed=True,
-        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
-        since_version="strategy_plugins.v1",
-        description="Local risk-scaling consumer for the tech/communication pullback profile.",
-    ),
-    PluginConsumptionPolicy(
-        plugin=PLUGIN_MARKET_REGIME_CONTROL,
         strategy="mega_cap_leader_rotation_top50_balanced",
         notification_allowed=True,
         position_control_allowed=True,

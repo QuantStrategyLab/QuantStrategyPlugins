@@ -177,7 +177,17 @@ def _compact_signal(payload: Mapping[str, Any] | None) -> dict[str, Any]:
     ):
         if key in payload:
             compact[key] = payload.get(key)
-    for key in ("data_freshness", "data_quality", "event_quality", "audit_summary"):
+    for key in (
+        "data_freshness",
+        "data_quality",
+        "event_quality",
+        "panic_reversal_quality",
+        "audit_summary",
+        "metrics",
+        "rebound_confirmation",
+        "reversal_confirmation",
+        "selected_event",
+    ):
         value = payload.get(key)
         if isinstance(value, Mapping):
             compact[key] = dict(value)

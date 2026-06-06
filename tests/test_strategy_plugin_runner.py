@@ -399,6 +399,13 @@ def test_strategy_plugin_runner_can_enable_panic_reversal_inside_market_regime_c
     assert payload["position_control"]["panic_reversal_size_scalar"] == 0.0
     assert payload["position_control"]["taco_allowed"] is False
     assert "panic_reversal:panic_reversal" in payload["position_control"]["reason_codes"]
+    zh_notification = payload["notification"]["localized_messages"]["zh-CN"]
+    assert "【机会复核｜TQQQ｜VIX 恐慌反转】" in zh_notification
+    assert "结论：触发人工复核，不自动加仓。" in zh_notification
+    assert "VIX 曾达到恐慌区间" in zh_notification
+    assert "VIX 已从高点回落" in zh_notification
+    assert "QQQ 3 日收益" in zh_notification
+    assert "panic_reversal_size_scalar = 0.00" in zh_notification
 
 
 def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path) -> None:
@@ -704,6 +711,12 @@ def test_strategy_plugin_runner_runs_taco_rebound_notification_mount_for_tqqq(tm
     assert latest["rebound_confirmation"]["confirmed"] is True
     assert latest["would_trade_if_enabled"] is False
     assert "sleeve_suggestion" not in latest
+    zh_notification = latest["localized_messages"]["notification"]["zh-CN"]
+    assert "【机会复核｜TQQQ｜TACO 事件反弹】" in zh_notification
+    assert "结论：触发人工复核，不自动加仓。" in zh_notification
+    assert "事件：" in zh_notification
+    assert "价格确认：" in zh_notification
+    assert "人工复核建议：" in zh_notification
 
 
 def test_strategy_plugin_runner_can_enable_taco_ai_audit_without_api_key(tmp_path, monkeypatch) -> None:
@@ -817,6 +830,10 @@ def test_strategy_plugin_runner_runs_panic_reversal_notification_mount_for_tqqq(
     assert latest["execution_controls"]["position_control_allowed"] is False
     assert latest["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
     assert latest["localized_messages"]["labels"]["canonical_route"]["zh-CN"] == "恐慌反转"
+    zh_notification = latest["notification"]["localized_messages"]["zh-CN"]
+    assert "【机会复核｜TQQQ｜VIX 恐慌反转】" in zh_notification
+    assert "执行权限：只通知；不下单；不修改仓位。" in zh_notification
+    assert "TQQQ 从近 5 日低点反弹" in zh_notification
 
 
 def test_strategy_plugin_runner_rejects_panic_reversal_for_soxl_strategy_mount(tmp_path) -> None:

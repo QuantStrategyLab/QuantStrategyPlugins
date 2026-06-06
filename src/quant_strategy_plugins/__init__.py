@@ -18,6 +18,12 @@ from .market_regime_control_plugin import (
     build_market_regime_control_signal,
     write_market_regime_control_outputs,
 )
+from .panic_reversal_shadow_plugin import (
+    PANIC_REVERSAL_PROFILE,
+    SCHEMA_VERSION as PANIC_REVERSAL_SHADOW_SCHEMA_VERSION,
+    build_panic_reversal_shadow_signal,
+    write_panic_reversal_shadow_outputs,
+)
 from .strategy_plugin_runner import run_configured_plugins
 from .taco_rebound_shadow_plugin import (
     SCHEMA_VERSION as TACO_REBOUND_SHADOW_SCHEMA_VERSION,
@@ -33,15 +39,19 @@ __all__ = [
     "MACRO_RISK_GOVERNOR_SCHEMA_VERSION",
     "MARKET_REGIME_CONTROL_PROFILE",
     "MARKET_REGIME_CONTROL_SCHEMA_VERSION",
+    "PANIC_REVERSAL_PROFILE",
+    "PANIC_REVERSAL_SHADOW_SCHEMA_VERSION",
     "TACO_REBOUND_PROFILE",
     "TACO_REBOUND_SHADOW_SCHEMA_VERSION",
     "build_crisis_response_shadow_signal",
     "build_macro_risk_governor_signal",
     "build_market_regime_control_signal",
+    "build_panic_reversal_shadow_signal",
     "build_taco_rebound_shadow_signal",
     "run_configured_plugins",
     "write_crisis_response_shadow_outputs",
     "write_macro_risk_governor_outputs",
     "write_market_regime_control_outputs",
+    "write_panic_reversal_shadow_outputs",
     "write_taco_rebound_shadow_outputs",
 ]

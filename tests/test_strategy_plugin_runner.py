@@ -19,6 +19,7 @@ from quant_strategy_plugins.strategy_plugin_runner import (
     PLUGIN_MARKET_REGIME_CONTROL,
     PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY,
     PLUGIN_MACRO_RISK_GOVERNOR,
+    PLUGIN_PANIC_REVERSAL_SHADOW,
     PLUGIN_SCHEMA_VERSIONS,
     PLUGIN_TACO_REBOUND_SHADOW,
     STRATEGY_PLUGIN_LOG_SCHEMA_VERSION,
@@ -139,6 +140,21 @@ def _taco_rebound_prices() -> pd.DataFrame:
         tqqq_close = tqqq_path[idx] if idx < len(tqqq_path) else 110.0 + idx * 2.0
         rows.append({"symbol": "QQQ", "as_of": as_of, "close": qqq_close, "volume": 1_000_000})
         rows.append({"symbol": "TQQQ", "as_of": as_of, "close": tqqq_close, "volume": 1_000_000})
+    return pd.DataFrame(rows)
+
+
+def _panic_reversal_prices() -> pd.DataFrame:
+    dates = pd.bdate_range("2025-04-01", periods=12)
+    qqq_path = [100.0, 96.0, 92.0, 88.0, 84.0, 82.0, 84.0, 87.0, 90.0, 92.0, 94.0, 96.0]
+    tqqq_path = [100.0, 88.0, 78.0, 70.0, 64.0, 60.0, 66.0, 74.0, 82.0, 88.0, 94.0, 100.0]
+    vix_path = [20.0, 32.0, 45.0, 54.0, 60.0, 58.0, 55.0, 48.0, 45.0, 42.0, 39.0, 35.0]
+    vix3m_path = [22.0, 28.0, 38.0, 45.0, 48.0, 47.0, 45.0, 41.0, 39.0, 37.0, 35.0, 33.0]
+    rows: list[dict[str, object]] = []
+    for idx, as_of in enumerate(dates):
+        rows.append({"symbol": "QQQ", "as_of": as_of, "close": qqq_path[idx], "volume": 1_000_000})
+        rows.append({"symbol": "TQQQ", "as_of": as_of, "close": tqqq_path[idx], "volume": 1_000_000})
+        rows.append({"symbol": "VIX", "as_of": as_of, "close": vix_path[idx], "volume": 0})
+        rows.append({"symbol": "VIX3M", "as_of": as_of, "close": vix3m_path[idx], "volume": 0})
     return pd.DataFrame(rows)
 
 
@@ -348,6 +364,43 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["log_record"]["canonical_route"] == "risk_reduced"
 
 
+def test_strategy_plugin_runner_can_enable_panic_reversal_inside_market_regime_control(tmp_path) -> None:
+    prices_path = tmp_path / "market_regime_panic_prices.csv"
+    output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
+    _panic_reversal_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": STRATEGY_NAME,
+                "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "as_of": "2025-04-10",
+                    "start_date": "2025-04-01",
+                    "crisis_enabled": False,
+                    "macro_enabled": False,
+                    "taco_enabled": False,
+                    "panic_reversal_enabled": True,
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    assert summary["strategy_plugins"][0]["status"] == "ok"
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["canonical_route"] == "opportunity_watch"
+    assert payload["position_control"]["panic_reversal_allowed"] is True
+    assert payload["position_control"]["panic_reversal_size_scalar"] == 0.0
+    assert payload["position_control"]["taco_allowed"] is False
+    assert "panic_reversal:panic_reversal" in payload["position_control"]["reason_codes"]
+
+
 def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path) -> None:
     prices_path = tmp_path / "market_regime_prices.csv"
     output_dir = tmp_path / GENERAL_MARKET_REGIME_NOTIFICATION_TARGET / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
@@ -430,12 +483,21 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
     assert set(PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS[PLUGIN_MARKET_REGIME_CONTROL]) == {
         GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     }
+    assert PLUGIN_COMPATIBLE_STRATEGIES[PLUGIN_PANIC_REVERSAL_SHADOW] == (STRATEGY_NAME,)
+    assert PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS[PLUGIN_PANIC_REVERSAL_SHADOW] == (
+        GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+    )
     assert PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL] == ("market_regime_control.v1",)
+    assert PLUGIN_SCHEMA_VERSIONS[PLUGIN_PANIC_REVERSAL_SHADOW] == ("panic_reversal_shadow.v1",)
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_CRISIS_RESPONSE_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_MACRO_RISK_GOVERNOR] == PLUGIN_MARKET_REGIME_CONTROL
     assert PLUGIN_DEPRECATED_SUCCESSORS[PLUGIN_TACO_REBOUND_SHADOW] == PLUGIN_MARKET_REGIME_CONTROL
     assert (
         PLUGIN_MARKET_REGIME_CONTROL,
+        SOXL_STRATEGY_NAME,
+    ) not in PLUGIN_CONSUMPTION_POLICY_REGISTRY
+    assert (
+        PLUGIN_PANIC_REVERSAL_SHADOW,
         SOXL_STRATEGY_NAME,
     ) not in PLUGIN_CONSUMPTION_POLICY_REGISTRY
     assert PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY[
@@ -719,7 +781,96 @@ def test_strategy_plugin_runner_rejects_taco_rebound_for_non_tqqq_strategy(tmp_p
     with pytest.raises(ValueError, match="strategy-limited"):
         run_configured_plugins(config)
 
-    assert not (output_dir / "latest_signal.json").exists()
+
+def test_strategy_plugin_runner_runs_panic_reversal_notification_mount_for_tqqq(tmp_path) -> None:
+    prices_path = tmp_path / "panic_prices.csv"
+    output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_PANIC_REVERSAL_SHADOW
+    _panic_reversal_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": STRATEGY_NAME,
+                "plugin": PLUGIN_PANIC_REVERSAL_SHADOW,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "as_of": "2025-04-10",
+                    "start_date": "2025-04-01",
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    result = summary["strategy_plugins"][0]
+    assert result["strategy"] == STRATEGY_NAME
+    assert result["plugin"] == PLUGIN_PANIC_REVERSAL_SHADOW
+    assert result["status"] == "ok"
+    assert "route=panic_reversal action=notify_manual_review" in result["message"]
+    latest = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert latest["manual_review_required"] is True
+    assert latest["would_trade_if_enabled"] is False
+    assert latest["execution_controls"]["position_control_allowed"] is False
+    assert latest["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
+    assert latest["localized_messages"]["labels"]["canonical_route"]["zh-CN"] == "恐慌反转"
+
+
+def test_strategy_plugin_runner_rejects_panic_reversal_for_soxl_strategy_mount(tmp_path) -> None:
+    prices_path = tmp_path / "panic_prices.csv"
+    _panic_reversal_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": SOXL_STRATEGY_NAME,
+                "plugin": PLUGIN_PANIC_REVERSAL_SHADOW,
+                "enabled": True,
+                "inputs": {"prices": str(prices_path), "as_of": "2025-04-10"},
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="strategy-limited"):
+        run_configured_plugins(config)
+
+
+def test_strategy_plugin_runner_runs_panic_reversal_general_notification_target(tmp_path) -> None:
+    prices_path = tmp_path / "panic_prices.csv"
+    output_dir = tmp_path / GENERAL_MARKET_REGIME_NOTIFICATION_TARGET / "plugins" / PLUGIN_PANIC_REVERSAL_SHADOW
+    _panic_reversal_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "notification_targets": [
+            {
+                "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                "plugin": PLUGIN_PANIC_REVERSAL_SHADOW,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "as_of": "2025-04-10",
+                    "start_date": "2025-04-01",
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    assert summary["strategy_plugins"] == []
+    result = summary["notification_targets"][0]
+    assert result["plugin"] == PLUGIN_PANIC_REVERSAL_SHADOW
+    assert result["status"] == "ok"
+    latest = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert latest["target_type"] == "notification_target"
+    assert latest["execution_controls"]["position_control_allowed"] is False
+    assert latest["execution_controls"]["strategy_runtime_metadata_allowed"] is False
 
 
 def test_strategy_plugin_runner_can_skip_disabled_taco_notification_mount(tmp_path) -> None:

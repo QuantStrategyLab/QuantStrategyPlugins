@@ -24,6 +24,11 @@ from .market_regime_control_plugin import (
     build_market_regime_control_signal,
     write_market_regime_control_outputs,
 )
+from .panic_reversal_shadow_plugin import (
+    PANIC_REVERSAL_PROFILE,
+    build_panic_reversal_shadow_signal,
+    write_panic_reversal_shadow_outputs,
+)
 from .russell_1000_multi_factor_defensive_snapshot import read_table
 from .taco_panic_rebound_research import DEFAULT_EVENT_SET, resolve_trade_war_event_set
 from .taco_rebound_shadow_plugin import (
@@ -37,6 +42,7 @@ GENERAL_MARKET_REGIME_NOTIFICATION_TARGET = "market_regime_notification"
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
 PLUGIN_MARKET_REGIME_CONTROL = MARKET_REGIME_CONTROL_PROFILE
 PLUGIN_MACRO_RISK_GOVERNOR = MACRO_RISK_GOVERNOR_PROFILE
+PLUGIN_PANIC_REVERSAL_SHADOW = PANIC_REVERSAL_PROFILE
 PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
 STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION = "strategy_plugin_messages.v1"
@@ -50,6 +56,7 @@ PLUGIN_SCHEMA_VERSIONS: dict[str, tuple[str, ...]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: ("crisis_response_shadow.v1",),
     PLUGIN_MARKET_REGIME_CONTROL: ("market_regime_control.v1",),
     PLUGIN_MACRO_RISK_GOVERNOR: ("macro_risk_governor.v1",),
+    PLUGIN_PANIC_REVERSAL_SHADOW: ("panic_reversal_shadow.v1",),
     PLUGIN_TACO_REBOUND_SHADOW: ("taco_rebound_shadow.v2",),
 }
 PLUGIN_DEPRECATED_SUCCESSORS: dict[str, str] = {
@@ -163,6 +170,15 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         since_version="strategy_plugins.v1",
         description="Manual-review event rebound notifier for TQQQ only.",
     ),
+    PluginConsumptionPolicy(
+        plugin=PLUGIN_PANIC_REVERSAL_SHADOW,
+        strategy="tqqq_growth_income",
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
+        since_version="strategy_plugins.v1",
+        description="Research-only VIX panic reversal notifier for TQQQ manual review.",
+    ),
 )
 PLUGIN_CONSUMPTION_POLICY_REGISTRY: dict[tuple[str, str], PluginConsumptionPolicy] = {
     (policy.plugin, policy.strategy): policy for policy in PLUGIN_CONSUMPTION_POLICIES
@@ -177,6 +193,16 @@ PLUGIN_NOTIFICATION_TARGET_POLICIES: tuple[PluginNotificationTargetPolicy, ...] 
         since_version="strategy_plugins.v1",
         description="General market-regime notice. Not mounted into an automated strategy runtime.",
         notification_role="general_market_regime_notification",
+    ),
+    PluginNotificationTargetPolicy(
+        plugin=PLUGIN_PANIC_REVERSAL_SHADOW,
+        notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+        notification_allowed=True,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
+        since_version="strategy_plugins.v1",
+        description="General research-only panic reversal notice. Not mounted into an automated strategy runtime.",
+        notification_role="panic_reversal_notification",
     ),
 )
 PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY: dict[tuple[str, str], PluginNotificationTargetPolicy] = {
@@ -205,6 +231,7 @@ LOCALIZED_ROUTE_LABELS: dict[str, dict[str, str]] = {
     "delever": {"en-US": "De-lever", "zh-CN": "降杠杆"},
     "no_action": {"en-US": "No action", "zh-CN": "无动作"},
     "opportunity_watch": {"en-US": "Opportunity watch", "zh-CN": "机会观察"},
+    "panic_reversal": {"en-US": "Panic reversal", "zh-CN": "恐慌反转"},
     "risk_off": {"en-US": "Risk off", "zh-CN": "风险关闭"},
     "risk_reduced": {"en-US": "Risk reduced", "zh-CN": "风险降低"},
     "taco_rebound": {"en-US": "TACO rebound", "zh-CN": "TACO 反弹"},
@@ -223,6 +250,7 @@ LOCALIZED_SOURCE_LABELS: dict[str, dict[str, str]] = {
     "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
     "data_quality": {"en-US": "Data quality", "zh-CN": "数据质量"},
     "macro": {"en-US": "Macro", "zh-CN": "宏观"},
+    "panic_reversal": {"en-US": "Panic reversal", "zh-CN": "恐慌反转"},
     "taco": {"en-US": "TACO", "zh-CN": "TACO"},
 }
 LOCALIZED_REASON_LABELS: dict[str, dict[str, str]] = {
@@ -274,12 +302,17 @@ LOCALIZED_REASON_LABELS: dict[str, dict[str, str]] = {
         "zh-CN": "新高新低差观察",
     },
     "pentagon_pizza_watch": {"en-US": "Pentagon pizza index watch", "zh-CN": "五角大楼比萨指数观察"},
+    "panic_reversal": {"en-US": "Panic reversal context", "zh-CN": "恐慌反转上下文"},
+    "panic_reversal_watch": {"en-US": "Panic reversal watch", "zh-CN": "恐慌反转观察"},
     "put_call_stress_watch": {"en-US": "Put/call stress watch", "zh-CN": "Put/call 压力观察"},
+    "price_crisis_guard_active": {"en-US": "Price crisis guard active", "zh-CN": "价格危机保护激活"},
+    "price_rebound_confirmation": {"en-US": "Price rebound confirmation", "zh-CN": "价格反弹确认"},
     "safe_haven_demand_watch": {"en-US": "Safe-haven demand watch", "zh-CN": "避险需求观察"},
     "skew_high_watch": {"en-US": "SKEW high watch", "zh-CN": "SKEW 偏高观察"},
     "taco_rebound": {"en-US": "TACO rebound context", "zh-CN": "TACO 反弹上下文"},
     "true_crisis": {"en-US": "True crisis", "zh-CN": "真实危机"},
     "vix_crisis_level": {"en-US": "VIX crisis level", "zh-CN": "VIX 危机水平"},
+    "vix_panic_reversal": {"en-US": "VIX panic reversal", "zh-CN": "VIX 恐慌回落"},
     "vix_spike": {"en-US": "VIX spike", "zh-CN": "VIX 尖峰"},
     "vix_term_structure_inverted_watch": {
         "en-US": "VIX term-structure inversion watch",
@@ -549,6 +582,55 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
     for key in bool_keys:
         if key in plugin_config and plugin_config[key] is not None:
             kwargs[key] = _as_bool(plugin_config[key])
+    return kwargs
+
+
+def _build_panic_reversal_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    string_keys = {
+        "as_of",
+        "start_date",
+        "end_date",
+        "benchmark_symbol",
+        "attack_symbol",
+    }
+    numeric_keys = {
+        "min_vix_high",
+        "min_vix_pullback_from_high",
+        "min_vix_vix3m_ratio",
+        "min_benchmark_rebound_from_low",
+        "min_attack_rebound_from_low",
+        "min_benchmark_3d_return",
+        "crisis_guard_drawdown",
+    }
+    integer_keys = {
+        "max_price_age_days",
+        "max_vol_age_days",
+        "vix_high_lookback_days",
+        "confirmation_lookback_days",
+        "crisis_guard_ma_days",
+        "crisis_guard_ma_slope_days",
+    }
+    bool_keys = {
+        "require_vix_term_structure",
+        "suppress_when_price_crisis_guard_active",
+    }
+    for key in string_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = str(plugin_config[key]).strip()
+    for key in numeric_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = float(plugin_config[key])
+    for key in integer_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = int(plugin_config[key])
+    for key in bool_keys:
+        if key in plugin_config and plugin_config[key] is not None:
+            kwargs[key] = _as_bool(plugin_config[key])
+    if "vix_symbols" in plugin_config:
+        kwargs["vix_symbols"] = _as_str_tuple(plugin_config["vix_symbols"])
+    if "vix3m_symbols" in plugin_config:
+        kwargs["vix3m_symbols"] = _as_str_tuple(plugin_config["vix3m_symbols"])
     return kwargs
 
 
@@ -993,6 +1075,15 @@ def _build_taco_rebound_payload(price_history: pd.DataFrame, plugin_config: Mapp
     )
 
 
+def _build_panic_reversal_payload(price_history: pd.DataFrame, plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    external_context = _optional_table(plugin_config.get("external_context"))
+    return build_panic_reversal_shadow_signal(
+        price_history,
+        external_context=external_context,
+        **_build_panic_reversal_kwargs(plugin_config),
+    )
+
+
 def _build_macro_risk_governor_payload(price_history: pd.DataFrame, plugin_config: Mapping[str, Any]) -> dict[str, Any]:
     external_context = _optional_table(plugin_config.get("external_context"))
     return build_macro_risk_governor_signal(
@@ -1010,6 +1101,8 @@ def _build_market_regime_control_payload(price_history: pd.DataFrame, plugin_con
         components["macro"] = _build_macro_risk_governor_payload(price_history, plugin_config)
     if _as_bool(plugin_config.get("taco_enabled"), default=True):
         components["taco"] = _build_taco_rebound_payload(price_history, plugin_config)
+    if _as_bool(plugin_config.get("panic_reversal_enabled"), default=False):
+        components["panic_reversal"] = _build_panic_reversal_payload(price_history, plugin_config)
     return build_market_regime_control_signal(
         components,
         strategy_policy=str(plugin_config.get("strategy_policy", "levered_growth_income_v1")).strip(),
@@ -1132,6 +1225,11 @@ TACO_REBOUND_SHADOW_SPEC = PluginExecutionSpec(
     build_payload=_build_taco_rebound_payload,
     write_outputs=write_taco_rebound_shadow_outputs,
 )
+PANIC_REVERSAL_SHADOW_SPEC = PluginExecutionSpec(
+    default_plugin=PLUGIN_PANIC_REVERSAL_SHADOW,
+    build_payload=_build_panic_reversal_payload,
+    write_outputs=write_panic_reversal_shadow_outputs,
+)
 MACRO_RISK_GOVERNOR_SPEC = PluginExecutionSpec(
     default_plugin=PLUGIN_MACRO_RISK_GOVERNOR,
     build_payload=_build_macro_risk_governor_payload,
@@ -1152,6 +1250,10 @@ def run_taco_rebound_shadow_plugin(plugin_config: Mapping[str, Any], default_mod
     return _run_table_strategy_plugin(plugin_config, default_mode, TACO_REBOUND_SHADOW_SPEC)
 
 
+def run_panic_reversal_shadow_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
+    return _run_table_strategy_plugin(plugin_config, default_mode, PANIC_REVERSAL_SHADOW_SPEC)
+
+
 def run_macro_risk_governor_plugin(plugin_config: Mapping[str, Any], default_mode: str) -> PluginRunResult:
     return _run_table_strategy_plugin(plugin_config, default_mode, MACRO_RISK_GOVERNOR_SPEC)
 
@@ -1164,12 +1266,14 @@ PLUGIN_RUNNERS: dict[str, PluginRunner] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: run_crisis_response_shadow_plugin,
     PLUGIN_MARKET_REGIME_CONTROL: run_market_regime_control_plugin,
     PLUGIN_MACRO_RISK_GOVERNOR: run_macro_risk_governor_plugin,
+    PLUGIN_PANIC_REVERSAL_SHADOW: run_panic_reversal_shadow_plugin,
     PLUGIN_TACO_REBOUND_SHADOW: run_taco_rebound_shadow_plugin,
 }
 PLUGIN_SPECS: dict[str, PluginExecutionSpec] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: CRISIS_RESPONSE_SHADOW_SPEC,
     PLUGIN_MARKET_REGIME_CONTROL: MARKET_REGIME_CONTROL_SPEC,
     PLUGIN_MACRO_RISK_GOVERNOR: MACRO_RISK_GOVERNOR_SPEC,
+    PLUGIN_PANIC_REVERSAL_SHADOW: PANIC_REVERSAL_SHADOW_SPEC,
     PLUGIN_TACO_REBOUND_SHADOW: TACO_REBOUND_SHADOW_SPEC,
 }
 
@@ -1321,6 +1425,7 @@ __all__ = [
     "PLUGIN_CRISIS_RESPONSE_SHADOW",
     "PLUGIN_MARKET_REGIME_CONTROL",
     "PLUGIN_MACRO_RISK_GOVERNOR",
+    "PLUGIN_PANIC_REVERSAL_SHADOW",
     "PLUGIN_TACO_REBOUND_SHADOW",
     "PLUGIN_COMPATIBLE_STRATEGIES",
     "PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS",
@@ -1342,5 +1447,6 @@ __all__ = [
     "run_crisis_response_shadow_plugin",
     "run_market_regime_control_plugin",
     "run_macro_risk_governor_plugin",
+    "run_panic_reversal_shadow_plugin",
     "run_taco_rebound_shadow_plugin",
 ]

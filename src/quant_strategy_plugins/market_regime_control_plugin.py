@@ -17,6 +17,7 @@ MARKET_REGIME_CONTROL_PROFILE = "market_regime_control"
 COMPONENT_CRISIS = "crisis"
 COMPONENT_MACRO = "macro"
 COMPONENT_TACO = "taco"
+COMPONENT_PANIC_REVERSAL = "panic_reversal"
 
 ROUTE_NO_ACTION = "no_action"
 ROUTE_WATCH = "watch"
@@ -37,6 +38,7 @@ CRISIS_WATCH_ROUTES = frozenset({"valuation_fragility", "systemic_stress_watch",
 MACRO_ACTIVE_ROUTES = frozenset({"delever", "crisis"})
 MACRO_WATCH_ROUTES = frozenset({"watch"})
 TACO_ACTIVE_ROUTES = frozenset({"taco_rebound", "taco_fake_crisis"})
+PANIC_REVERSAL_ACTIVE_ROUTES = frozenset({"panic_reversal"})
 
 
 def _as_bool(value: Any, *, default: bool = False) -> bool:
@@ -92,6 +94,8 @@ def _component_key(payload: Mapping[str, Any]) -> str | None:
         return COMPONENT_MACRO
     if "taco" in plugin:
         return COMPONENT_TACO
+    if "panic_reversal" in plugin:
+        return COMPONENT_PANIC_REVERSAL
     return None
 
 
@@ -104,7 +108,7 @@ def _normalize_component_signals(
             if not isinstance(payload, Mapping):
                 continue
             component = str(key or "").strip().lower()
-            if component in {COMPONENT_CRISIS, COMPONENT_MACRO, COMPONENT_TACO}:
+            if component in {COMPONENT_CRISIS, COMPONENT_MACRO, COMPONENT_TACO, COMPONENT_PANIC_REVERSAL}:
                 normalized[component] = payload
                 continue
             inferred = _component_key(payload)
@@ -165,6 +169,7 @@ def _compact_signal(payload: Mapping[str, Any] | None) -> dict[str, Any]:
         "manual_review_required",
         "rebound_context_active",
         "event_context_active",
+        "panic_reversal_context_active",
         "price_crisis_guard_active",
         "watch_label",
         "notification_reason",
@@ -198,10 +203,12 @@ def build_market_regime_control_signal(
     crisis = components.get(COMPONENT_CRISIS)
     macro = components.get(COMPONENT_MACRO)
     taco = components.get(COMPONENT_TACO)
+    panic_reversal = components.get(COMPONENT_PANIC_REVERSAL)
 
     crisis_route = _normalized_route(crisis)
     macro_route = _normalized_route(macro)
     taco_route = _normalized_route(taco)
+    panic_reversal_route = _normalized_route(panic_reversal)
     crisis_active = bool(crisis_route in CRISIS_ACTIVE_ROUTES and not _blocked(crisis))
     crisis_watch = bool(
         crisis_route in CRISIS_WATCH_ROUTES
@@ -223,6 +230,25 @@ def build_market_regime_control_signal(
         )
     )
     taco_watch = bool(isinstance(taco, Mapping) and _normalized_action(taco) == ACTION_WATCH_ONLY and not _blocked(taco))
+    panic_reversal_active = bool(
+        panic_reversal_route in PANIC_REVERSAL_ACTIVE_ROUTES
+        and not _blocked(panic_reversal)
+        and (
+            _as_bool(
+                panic_reversal.get("manual_review_required") if isinstance(panic_reversal, Mapping) else None,
+                default=False,
+            )
+            or _as_bool(
+                panic_reversal.get("panic_reversal_context_active") if isinstance(panic_reversal, Mapping) else None,
+                default=False,
+            )
+        )
+    )
+    panic_reversal_watch = bool(
+        isinstance(panic_reversal, Mapping)
+        and _normalized_action(panic_reversal) == ACTION_WATCH_ONLY
+        and not _blocked(panic_reversal)
+    )
     blocked = any(_blocked(payload) for payload in components.values())
 
     final_route = ROUTE_NO_ACTION
@@ -233,6 +259,7 @@ def build_market_regime_control_signal(
     leverage_scalar = 1.0
     risk_asset_scalar = 1.0
     taco_allowed = False
+    panic_reversal_allowed = False
     local_delever_veto_allowed = False
     crisis_defense_required = False
     blocked_actions: tuple[str, ...] = ()
@@ -248,10 +275,12 @@ def build_market_regime_control_signal(
         leverage_scalar = 0.0
         risk_asset_scalar = 0.0
         crisis_defense_required = True
-        blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto")
+        blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto", "panic_reversal_veto")
         reason_codes.extend(f"crisis:{code}" for code in _reason_codes(crisis) or ("true_crisis",))
         if taco_active:
             vetoes.append("crisis_blocks_taco")
+        if panic_reversal_active:
+            vetoes.append("crisis_blocks_panic_reversal")
     elif macro_active and macro_route == "crisis":
         final_route = ROUTE_RISK_OFF
         suggested_action = ACTION_DEFEND
@@ -260,10 +289,12 @@ def build_market_regime_control_signal(
         leverage_scalar = _clamp_ratio(macro.get("leverage_scalar") if isinstance(macro, Mapping) else None, default=0.0)
         risk_asset_scalar = _clamp_ratio(macro.get("risk_asset_scalar") if isinstance(macro, Mapping) else None, default=0.0)
         risk_budget_scalar = risk_asset_scalar
-        blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto")
+        blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto", "panic_reversal_veto")
         reason_codes.extend(f"macro:{code}" for code in _reason_codes(macro) or ("crisis",))
         if taco_active:
             vetoes.append("macro_crisis_blocks_taco")
+        if panic_reversal_active:
+            vetoes.append("macro_crisis_blocks_panic_reversal")
     elif macro_active:
         final_route = ROUTE_RISK_REDUCED
         suggested_action = ACTION_DELEVER
@@ -272,29 +303,38 @@ def build_market_regime_control_signal(
         leverage_scalar = _clamp_ratio(macro.get("leverage_scalar") if isinstance(macro, Mapping) else None, default=0.0)
         risk_asset_scalar = _clamp_ratio(macro.get("risk_asset_scalar") if isinstance(macro, Mapping) else None, default=1.0)
         risk_budget_scalar = risk_asset_scalar
-        blocked_actions = ("increase_leverage", "taco_rebound_veto")
+        blocked_actions = ("increase_leverage", "taco_rebound_veto", "panic_reversal_veto")
         reason_codes.extend(f"macro:{code}" for code in _reason_codes(macro) or ("delever",))
         if taco_active:
             vetoes.append("macro_delever_blocks_taco")
+        if panic_reversal_active:
+            vetoes.append("macro_delever_blocks_panic_reversal")
     elif blocked:
         final_route = ROUTE_BLOCKED
         suggested_action = ACTION_BLOCKED
         route_source = "data_quality"
         reason_codes.extend(f"{key}:blocked" for key, payload in components.items() if _blocked(payload))
-    elif taco_active:
+    elif taco_active or panic_reversal_active:
         final_route = ROUTE_OPPORTUNITY_WATCH
         suggested_action = ACTION_NOTIFY_MANUAL_REVIEW
-        route_source = COMPONENT_TACO
-        taco_allowed = True
+        route_source = COMPONENT_TACO if taco_active else COMPONENT_PANIC_REVERSAL
+        taco_allowed = bool(taco_active)
+        panic_reversal_allowed = bool(panic_reversal_active)
         local_delever_veto_allowed = True
-        reason_codes.extend(f"taco:{code}" for code in _reason_codes(taco) or ("taco_rebound",))
-    elif macro_watch or crisis_watch or taco_watch:
+        if taco_active:
+            reason_codes.extend(f"taco:{code}" for code in _reason_codes(taco) or ("taco_rebound",))
+        if panic_reversal_active:
+            reason_codes.extend(
+                f"panic_reversal:{code}" for code in _reason_codes(panic_reversal) or ("panic_reversal",)
+            )
+    elif macro_watch or crisis_watch or taco_watch or panic_reversal_watch:
         final_route = ROUTE_WATCH
         suggested_action = ACTION_WATCH_ONLY
         route_source = "watch"
         reason_codes.extend(f"macro:{code}" for code in _reason_codes(macro))
         reason_codes.extend(f"crisis:{code}" for code in _reason_codes(crisis))
         reason_codes.extend(f"taco:{code}" for code in _reason_codes(taco))
+        reason_codes.extend(f"panic_reversal:{code}" for code in _reason_codes(panic_reversal))
 
     notification = {
         "allowed": True,
@@ -317,6 +357,8 @@ def build_market_regime_control_signal(
         "risk_asset_scalar": _clamp_ratio(risk_asset_scalar, default=1.0),
         "taco_allowed": taco_allowed,
         "taco_size_scalar": _clamp_ratio(taco_opportunity_size_scalar, default=0.0) if taco_allowed else 0.0,
+        "panic_reversal_allowed": panic_reversal_allowed,
+        "panic_reversal_size_scalar": 0.0,
         "local_delever_veto_allowed": local_delever_veto_allowed,
         "crisis_defense_required": crisis_defense_required,
         "blocked_actions": blocked_actions,
@@ -348,6 +390,7 @@ def build_market_regime_control_signal(
             COMPONENT_CRISIS: _compact_signal(crisis),
             COMPONENT_MACRO: _compact_signal(macro),
             COMPONENT_TACO: _compact_signal(taco),
+            COMPONENT_PANIC_REVERSAL: _compact_signal(panic_reversal),
         },
         "execution_controls": {
             "capital_impact": "strategy_opt_in",

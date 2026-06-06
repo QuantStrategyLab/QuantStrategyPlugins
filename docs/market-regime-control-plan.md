@@ -50,6 +50,11 @@ Non-goals:
 - `taco_rebound_shadow`
   Handles TQQQ event-rebound notification. It emits manual-review notification
   context and local veto evidence, but it does not raise position size.
+- `panic_reversal_shadow`
+  Handles research-only VIX panic-reversal notification after volatility has
+  fallen from a panic high and price confirmation is present. It emits
+  manual-review context only; the sample is still too small, so it is disabled
+  by default and cannot raise position size.
 
 The unified artifact exposes five main sections:
 
@@ -74,15 +79,15 @@ The unified artifact exposes five main sections:
 The current order is risk-first:
 
 1. `crisis_response_shadow` `true_crisis` or bubble fragility has top priority,
-   emits `risk_off`, and vetoes TACO.
+   emits `risk_off`, and vetoes TACO and panic reversal.
 2. `macro_risk_governor` crisis state is next, emits `risk_off`, and vetoes
-   TACO.
+   TACO and panic reversal.
 3. `macro_risk_governor` de-leveraging emits `risk_reduced`, scales down
-   leverage or risk-asset budget, and vetoes TACO.
+   leverage or risk-asset budget, and vetoes TACO and panic reversal.
 4. Data-quality kill switches or blocked component states block opportunity-side
    actions.
-5. TACO may emit `opportunity_watch` and manual-review notification only when
-   there is no crisis or macro de-risking route.
+5. TACO or panic reversal may emit `opportunity_watch` and manual-review
+   notification only when there is no crisis or macro de-risking route.
 6. Watch-only signals notify but never grant position-control authority.
 
 This keeps crisis, macro, and TACO behavior separate: defense first,
@@ -99,13 +104,13 @@ Recommended policy:
 - TQQQ growth/income strategy
   Consumes `position_control` by default. `risk_off` moves toward cash-like or
   non-risk assets; `risk_reduced` lowers leverage or risk budget based on local
-  strategy configuration. TACO remains manual-review notification and local
-  veto context only.
+  strategy configuration. TACO and panic reversal remain manual-review
+  notification and local veto context only.
 - SOXL/SOXX trend/income strategy
   Does not mount the unified plugin by default and does not consume
   `position_control`. SOXL keeps its own reviewed SOXX trend and volatility
-  de-leveraging gates. Macro, crisis, and OSINT signals are delivered as general
-  notifications for manual review.
+  de-leveraging gates. Macro, crisis, panic reversal, and OSINT signals are
+  delivered as general notifications for manual review.
 - Global ETF, Russell 1000, and Mega Cap rotation
   strategies
   Support the unified plugin by default. `risk_reduced` should apply a 50% risk
@@ -267,9 +272,10 @@ Design implications:
 - Rotation strategies:
   enable 50% risk scaling for `risk_reduced` and zero risk-asset budget for
   `risk_off`.
-- TACO:
-  notification-only by default; it can surface opportunity context only when no
-  crisis or macro de-risking route is active.
+- TACO / panic reversal:
+  notification-only by default; they can surface opportunity context only when
+  no crisis or macro de-risking route is active. Panic reversal remains disabled
+  by default until event-window and no-regression reports justify promotion.
 - AI audit:
   no trading authority by default. It may write audit conclusions and
   notification evidence only.

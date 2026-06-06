@@ -37,6 +37,9 @@ taco_opportunity_size_scalar = 0.0
 crisis_enabled = true
 macro_enabled = true
 taco_enabled = true
+# Research-only VIX panic reversal evidence. Keep disabled by default until
+# event-window and no-regression reports justify promotion beyond notification.
+panic_reversal_enabled = false
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/market_regime_control"
@@ -66,6 +69,7 @@ realized_vol_requires_confirmation = true
 external_stress_actionable = false
 delever_risk_asset_scalar = 0.0
 taco_enabled = false
+panic_reversal_enabled = false
 crisis_enabled = true
 macro_enabled = true
 
@@ -123,3 +127,37 @@ start_date = "2026-01-01"
 
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/taco_rebound_shadow"
+
+[[strategy_plugins]]
+strategy = "tqqq_growth_income"
+plugin = "panic_reversal_shadow"
+enabled = false
+
+[strategy_plugins.inputs]
+prices = "data/output/panic_reversal_shadow/input/price_history.csv"
+external_context = "data/output/market_regime_control/input/external_context.csv"
+benchmark_symbol = "QQQ"
+attack_symbol = "TQQQ"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
+start_date = "2010-01-01"
+
+[strategy_plugins.outputs]
+output_dir = "data/output/tqqq_growth_income/plugins/panic_reversal_shadow"
+
+[[notification_targets]]
+notification_target = "market_regime_notification"
+plugin = "panic_reversal_shadow"
+enabled = false
+
+[notification_targets.inputs]
+prices = "data/output/panic_reversal_shadow/input/soxl_price_history.csv"
+external_context = "data/output/market_regime_control/input/external_context.csv"
+benchmark_symbol = "SOXX"
+attack_symbol = "SOXL"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
+start_date = "2016-06-06"
+
+[notification_targets.outputs]
+output_dir = "data/output/market_regime_notification/plugins/panic_reversal_shadow"

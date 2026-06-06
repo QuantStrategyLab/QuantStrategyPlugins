@@ -33,6 +33,8 @@
   只有显式研究开关 `external_stress_actionable` 开启后，外部压力字段才允许进入可执行分数。
 - `taco_rebound_shadow`
   负责 TQQQ 事件反弹通知。它输出人工复核通知和本地 veto 线索，不直接提高仓位。
+- `panic_reversal_shadow`
+  负责 VIX 恐慌高位回落后的研究通知。它要求 VIX 高位回落、VIX/VIX3M 期限结构和价格反弹确认同时满足，只输出人工复核通知；样本仍不足，默认不自动加仓，也不默认开启。
 
 统一插件输出四组主要字段：
 
@@ -55,7 +57,7 @@
 2. `macro_risk_governor` 的 `crisis` 其次，输出 `risk_off`，并 veto TACO。
 3. `macro_risk_governor` 的 `delever` 输出 `risk_reduced`，降低杠杆或风险资产预算，并 veto TACO。
 4. 数据质量 kill switch 或组件 blocked 状态会阻断机会侧动作。
-5. 只有没有危机和宏观降风险时，TACO 才能输出 `opportunity_watch` 和人工复核通知。
+5. 只有没有危机和宏观降风险时，TACO 或 panic reversal 才能输出 `opportunity_watch` 和人工复核通知。
 6. watch-only 信号只通知，不给仓位权限。
 
 这个顺序保证危机插件、宏观插件和 TACO 不冲突：防守优先，机会次之，通知和执行权限分离。
@@ -67,9 +69,9 @@
 建议消费规则：
 
 - TQQQ 杠杆增长收益策略
-  默认消费 `position_control`。`risk_off` 降到现金类或非风险资产；`risk_reduced` 按策略配置降低杠杆或风险预算；TACO 只触发人工复核和本地 veto。
+  默认消费 `position_control`。`risk_off` 降到现金类或非风险资产；`risk_reduced` 按策略配置降低杠杆或风险预算；TACO 和 panic reversal 只触发人工复核和本地 veto，不触发自动加仓。
 - SOXL/SOXX 趋势收益策略
-  不默认挂载统一插件，也不消费 `position_control`。SOXL 继续只使用已经通过复核的 SOXX 自身趋势和波动率降杠杆门；宏观、危机和 OSINT 信号只进入通用通知，由人工决定是否干预。
+  不默认挂载统一插件，也不消费 `position_control`。SOXL 继续只使用已经通过复核的 SOXX 自身趋势和波动率降杠杆门；宏观、危机、panic reversal 和 OSINT 信号只进入通用通知，由人工决定是否干预。
 - Global ETF、Russell 1000、Mega Cap 类轮动策略
   默认支持统一插件。`risk_reduced` 建议做 50% 风险预算缩放，`risk_off` 建议归零风险资产预算。
 - DCA 或收入型低频策略
@@ -157,5 +159,5 @@ TQQQ 2010-2026 真实产品窗口：
 - 杠杆策略：默认挂载统一插件，允许 `risk_off` 生效。
 - 高波动行业杠杆策略：除非回测证明自动消费能提升收益/回撤组合，否则不默认挂载统一插件；SOXL 当前只接收通用通知。
 - 轮动策略：默认开启 50% risk scaling 和 `risk_off` 归零。
-- TACO：默认通知-only；只有没有危机和宏观降风险时才允许提示机会。
+- TACO / panic reversal：默认通知-only；只有没有危机和宏观降风险时才允许提示机会。panic reversal 默认保持研究开关关闭，直到事件窗口和 no-regression 报告证明可提升权限。
 - AI audit：默认不参与交易权限，只能写审计结论和通知证据。

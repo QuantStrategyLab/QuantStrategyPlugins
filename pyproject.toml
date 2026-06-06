@@ -25,6 +25,7 @@ qsp-build-crisis-response-shadow-signal = "quant_strategy_plugins.crisis_respons
 qsp-build-macro-external-context = "quant_strategy_plugins.macro_external_context:main"
 qsp-build-macro-risk-governor-signal = "quant_strategy_plugins.macro_risk_governor_plugin:main"
 qsp-build-taco-rebound-shadow-signal = "quant_strategy_plugins.taco_rebound_shadow_plugin:main"
+qsp-build-panic-reversal-shadow-signal = "quant_strategy_plugins.panic_reversal_shadow_plugin:main"
 qsp-run-strategy-plugins = "quant_strategy_plugins.strategy_plugin_runner:main"
 
 [tool.setuptools]

@@ -134,6 +134,20 @@ allowlist:
 - `since_version`: records the runner schema version where the permission
   became effective.
 
+Permission boundaries live in documentation and machine-readable fields, not in
+the human notification body:
+
+- The plugin repository only writes artifacts and notifications. It does not
+  call broker APIs or directly mutate account allocation.
+- Automated position impact happens only when the strategy side explicitly
+  consumes `position_control`, and only when `position_control_allowed = true`
+  and `evidence_status = automation_approved`.
+- `notification_only`, TACO, panic reversal, AI audit, and general notification
+  targets are for manual review only.
+- Human notification copy should contain only the situation and suggested
+  action; it should not display internal governance fields such as
+  `position_control_allowed`, `execution_controls`, route codes, or veto codes.
+
 SOXL/SOXX is not in the strategy-level `market_regime_control` consumption
 registry. It receives broad market-regime context through the general
 `notification_targets.market_regime_notification` artifact. That notification

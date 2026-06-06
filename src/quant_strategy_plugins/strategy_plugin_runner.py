@@ -326,6 +326,47 @@ LOCALIZED_REASON_LABELS: dict[str, dict[str, str]] = {
     },
 }
 
+OPPORTUNITY_REVIEW_STATUS_LABELS: dict[str, dict[str, str]] = {
+    "blocked": {"en-US": "blocked", "zh-CN": "阻断状态"},
+    "crisis": {"en-US": "crisis state", "zh-CN": "危机状态"},
+    "delever": {"en-US": "de-risking state", "zh-CN": "降风险状态"},
+    "no_action": {"en-US": "normal state", "zh-CN": "正常观察状态"},
+    "opportunity_watch": {"en-US": "opportunity watch", "zh-CN": "机会观察状态"},
+    "panic_reversal": {"en-US": "panic-reversal review", "zh-CN": "恐慌反转复核状态"},
+    "risk_off": {"en-US": "defensive state", "zh-CN": "防守状态"},
+    "risk_reduced": {"en-US": "de-risking state", "zh-CN": "降风险状态"},
+    "taco_rebound": {"en-US": "event-rebound review", "zh-CN": "事件反弹复核状态"},
+    "true_crisis": {"en-US": "crisis state", "zh-CN": "危机状态"},
+    "watch": {"en-US": "watch state", "zh-CN": "观察状态"},
+}
+
+OPPORTUNITY_REVIEW_VETO_LABELS: dict[str, dict[str, str]] = {
+    "crisis_blocks_panic_reversal": {
+        "en-US": "crisis defense takes priority over the VIX panic-reversal signal",
+        "zh-CN": "危机防守信号优先于 VIX 恐慌反转",
+    },
+    "crisis_blocks_taco": {
+        "en-US": "crisis defense takes priority over the TACO rebound signal",
+        "zh-CN": "危机防守信号优先于 TACO 事件反弹",
+    },
+    "macro_crisis_blocks_panic_reversal": {
+        "en-US": "macro crisis signal takes priority over the VIX panic-reversal signal",
+        "zh-CN": "宏观危机信号优先于 VIX 恐慌反转",
+    },
+    "macro_crisis_blocks_taco": {
+        "en-US": "macro crisis signal takes priority over the TACO rebound signal",
+        "zh-CN": "宏观危机信号优先于 TACO 事件反弹",
+    },
+    "macro_delever_blocks_panic_reversal": {
+        "en-US": "macro de-risking signal takes priority over the VIX panic-reversal signal",
+        "zh-CN": "宏观降风险信号优先于 VIX 恐慌反转",
+    },
+    "macro_delever_blocks_taco": {
+        "en-US": "macro de-risking signal takes priority over the TACO rebound signal",
+        "zh-CN": "宏观降风险信号优先于 TACO 事件反弹",
+    },
+}
+
 
 PluginRunner = Callable[[Mapping[str, Any], str], PluginRunResult]
 PluginPayloadBuilder = Callable[[pd.DataFrame, Mapping[str, Any]], dict[str, Any]]
@@ -808,6 +849,14 @@ def _localized_reason_labels(reason_codes: Sequence[str], locale: str) -> tuple[
     return tuple(_localized_reason_label(reason_code, locale) for reason_code in reason_codes)
 
 
+def _localized_opportunity_status(route: str, locale: str) -> str:
+    return _localized_label(OPPORTUNITY_REVIEW_STATUS_LABELS, route, locale)
+
+
+def _localized_opportunity_veto_labels(vetoes: Sequence[str], locale: str) -> tuple[str, ...]:
+    return tuple(_localized_label(OPPORTUNITY_REVIEW_VETO_LABELS, veto, locale) for veto in vetoes)
+
+
 def _payload_should_notify(payload: Mapping[str, Any], route: str) -> bool:
     notification = _nested_mapping(payload, "notification")
     if "should_notify" in notification:
@@ -856,6 +905,20 @@ def _active_panic_payload(payload: Mapping[str, Any], plugin: str) -> Mapping[st
     ):
         return component
     return {}
+
+
+def _vetoed_opportunity_components(payload: Mapping[str, Any]) -> frozenset[str]:
+    notification = _nested_mapping(payload, "notification")
+    raw = notification.get("vetoed_opportunities")
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
+        return frozenset()
+    components: set[str] = set()
+    for item in raw:
+        if isinstance(item, Mapping):
+            component = str(item.get("component") or "").strip().lower()
+            if component:
+                components.add(component)
+    return frozenset(components)
 
 
 def _active_taco_payload(payload: Mapping[str, Any], plugin: str) -> Mapping[str, Any]:
@@ -917,7 +980,6 @@ def _append_panic_review_lines(lines: list[str], panic_payload: Mapping[str, Any
     if locale == "zh-CN":
         lines.extend(
             [
-                "触发原因：",
                 (
                     "- VIX 曾达到恐慌区间："
                     f"{int(_as_float_or_none(thresholds.get('vix_high_lookback_days')) or 5)} 日高点 "
@@ -947,7 +1009,6 @@ def _append_panic_review_lines(lines: list[str], panic_payload: Mapping[str, Any
         return
     lines.extend(
         [
-            "Trigger evidence:",
             (
                 "- VIX reached panic territory: "
                 f"{int(_as_float_or_none(thresholds.get('vix_high_lookback_days')) or 5)}-day high "
@@ -1025,77 +1086,87 @@ def _format_manual_review_notification_message(
     as_of: str,
     route: str,
 ) -> str | None:
-    if _payload_action(payload) != "notify_manual_review":
+    vetoed_components = _vetoed_opportunity_components(payload)
+    is_vetoed_opportunity_notice = bool(vetoed_components)
+    if _payload_action(payload) != "notify_manual_review" and not is_vetoed_opportunity_notice:
         return None
     panic_payload = _active_panic_payload(payload, plugin)
     taco_payload = _active_taco_payload(payload, plugin)
+    if "panic_reversal" not in vetoed_components and is_vetoed_opportunity_notice:
+        panic_payload = {}
+    if "taco" not in vetoed_components and is_vetoed_opportunity_notice:
+        taco_payload = {}
     if not panic_payload and not taco_payload:
         return None
 
-    position_control = _nested_mapping(payload, "position_control")
-    vetoes = _message_reason_codes(position_control.get("vetoes") or _nested_mapping(payload, "arbiter").get("vetoes"))
+    vetoes = _message_reason_codes(_nested_mapping(payload, "arbiter").get("vetoes"))
     attack_symbol = _review_attack_symbol(panic_payload, taco_payload) or target_label
     source_title = _manual_review_source_title(panic_payload=panic_payload, taco_payload=taco_payload, locale=locale)
     if locale == "zh-CN":
+        route_status = _localized_opportunity_status(route, locale)
+        veto_text = _message_join(_localized_opportunity_veto_labels(vetoes, locale), locale)
+        card_prefix = "机会被拦截" if is_vetoed_opportunity_notice else "机会复核"
+        situation_lines = ["- 机会信号已触发。"]
+        if is_vetoed_opportunity_notice:
+            situation_lines.append(f"- 当前仍处于{route_status}。")
+            if vetoes:
+                situation_lines.append(f"- {veto_text}。")
+        else:
+            situation_lines.append(f"- 当前状态：{route_status}。")
+        guidance_first = (
+            "- 人工复核恐慌是否已缓和，以及策略侧是否已按自身风控处理。"
+            if is_vetoed_opportunity_notice
+            else "- 结合策略自身风控、持仓状态和最新基本面判断是否需要干预。"
+        )
         lines = [
-            f"【机会复核｜{attack_symbol}｜{source_title}】",
+            f"【{card_prefix}｜{attack_symbol}｜{source_title}】",
             f"日期：{as_of or '未知日期'}",
-            "结论：触发人工复核，不自动加仓。",
-            (
-                f"仲裁：{plugin} = {route}；"
-                f"{'crisis/macro 未 veto' if not vetoes else '存在 veto：' + _message_join(vetoes, locale)}。"
-            ),
-            "执行权限：只通知；不下单；不修改仓位。",
+            "情况说明：",
+            *situation_lines,
         ]
-        if position_control:
-            scalar_bits = []
-            if "taco_size_scalar" in position_control:
-                scalar_bits.append(f"taco_size_scalar = {_format_number(position_control.get('taco_size_scalar'))}")
-            if "panic_reversal_size_scalar" in position_control:
-                scalar_bits.append(
-                    f"panic_reversal_size_scalar = {_format_number(position_control.get('panic_reversal_size_scalar'))}"
-                )
-            if scalar_bits:
-                lines.append("仓位权限：" + "；".join(scalar_bits) + "。")
         if panic_payload:
             _append_panic_review_lines(lines, panic_payload, locale=locale)
         if taco_payload:
             _append_taco_review_lines(lines, taco_payload, locale=locale)
         lines.extend(
             [
-                "人工复核建议：",
-                "- 只评估是否停止继续降风险或恢复观察，不作为自动买入信号。",
-                "- 若 crisis/macro 后续转为 risk_reduced 或 risk_off，本机会信号自动失效。",
+                "建议操作：",
+                guidance_first,
+                "- 若后续 VIX 或价格确认反转，本信号需要重新评估。",
             ]
         )
         return "\n".join(lines)
 
+    route_status = _localized_opportunity_status(route, locale)
+    veto_text = _message_join(_localized_opportunity_veto_labels(vetoes, locale), locale)
+    card_prefix = "Opportunity Vetoed" if is_vetoed_opportunity_notice else "Opportunity Review"
+    situation_lines = ["- Opportunity signal triggered."]
+    if is_vetoed_opportunity_notice:
+        situation_lines.append(f"- Current state is still {route_status}.")
+        if vetoes:
+            situation_lines.append(f"- {veto_text}.")
+    else:
+        situation_lines.append(f"- Current state: {route_status}.")
+    guidance_first = (
+        "- Manually review whether panic has eased and whether the strategy-side risk controls have already handled it."
+        if is_vetoed_opportunity_notice
+        else "- Consider strategy-side risk controls, current exposure, and latest fundamentals before intervening."
+    )
     lines = [
-        f"[Opportunity Review | {attack_symbol} | {source_title}]",
+        f"[{card_prefix} | {attack_symbol} | {source_title}]",
         f"Date: {as_of or 'unknown date'}",
-        "Conclusion: manual review triggered; no automatic position increase.",
-        f"Arbiter: {plugin} = {route}; {'crisis/macro did not veto' if not vetoes else 'vetoes: ' + _message_join(vetoes, locale)}.",
-        "Execution: notify only; no broker orders; no allocation mutation.",
+        "Situation:",
+        *situation_lines,
     ]
-    if position_control:
-        scalar_bits = []
-        if "taco_size_scalar" in position_control:
-            scalar_bits.append(f"taco_size_scalar = {_format_number(position_control.get('taco_size_scalar'))}")
-        if "panic_reversal_size_scalar" in position_control:
-            scalar_bits.append(
-                f"panic_reversal_size_scalar = {_format_number(position_control.get('panic_reversal_size_scalar'))}"
-            )
-        if scalar_bits:
-            lines.append("Position authority: " + "; ".join(scalar_bits) + ".")
     if panic_payload:
         _append_panic_review_lines(lines, panic_payload, locale=locale)
     if taco_payload:
         _append_taco_review_lines(lines, taco_payload, locale=locale)
     lines.extend(
         [
-            "Manual review guidance:",
-            "- Review only whether to stop further de-risking or return to watch; this is not an automatic buy signal.",
-            "- If crisis/macro later moves to risk_reduced or risk_off, this opportunity signal is invalidated.",
+            "Suggested action:",
+            guidance_first,
+            "- Reassess this signal if VIX or price confirmation later reverses.",
         ]
     )
     return "\n".join(lines)
@@ -1394,7 +1465,9 @@ def _build_market_regime_control_payload(price_history: pd.DataFrame, plugin_con
     if _as_bool(plugin_config.get("taco_enabled"), default=True):
         components["taco"] = _build_taco_rebound_payload(price_history, plugin_config)
     if _as_bool(plugin_config.get("panic_reversal_enabled"), default=False):
-        components["panic_reversal"] = _build_panic_reversal_payload(price_history, plugin_config)
+        panic_config = dict(plugin_config)
+        panic_config.setdefault("suppress_when_price_crisis_guard_active", False)
+        components["panic_reversal"] = _build_panic_reversal_payload(price_history, panic_config)
     return build_market_regime_control_signal(
         components,
         strategy_policy=str(plugin_config.get("strategy_policy", "levered_growth_income_v1")).strip(),

@@ -86,6 +86,15 @@
 - `evidence_status`：记录该策略/插件组合是 `automation_approved`、`notification_only` 还是 `deprecated_compatibility`。
 - `since_version`：记录该消费权限从哪个 runner schema 开始生效。
 
+权限边界写在文档和机器字段里，不重复写进人工通知正文：
+
+- 插件仓库只生成 artifact 和通知，不调用券商接口，也不直接改账户配置。
+- 自动仓位影响只发生在策略侧显式消费 `position_control` 时，并且必须同时满足
+  `position_control_allowed = true` 和 `evidence_status = automation_approved`。
+- `notification_only`、TACO、panic reversal、AI audit 和通用通知只用于人工查看。
+- 人工通知正文只写“情况说明”和“建议操作”，不展示 `position_control_allowed`、
+  `execution_controls`、route code 或 veto code 等内部治理字段。
+
 SOXL/SOXX 不出现在 `market_regime_control` 的策略级消费 registry 中；它通过
 `notification_targets.market_regime_notification` 接收通用通知。通用通知不是
 strategy，不允许进入策略 runtime metadata，也不能影响仓位，避免配置误用把通知

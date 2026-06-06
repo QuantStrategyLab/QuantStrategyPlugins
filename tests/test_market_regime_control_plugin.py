@@ -147,6 +147,9 @@ def test_market_regime_control_macro_delever_blocks_panic_reversal() -> None:
     assert payload["suggested_action"] == "delever"
     assert payload["position_control"]["panic_reversal_allowed"] is False
     assert "macro_delever_blocks_panic_reversal" in payload["arbiter"]["vetoes"]
+    assert payload["notification"]["opportunity_vetoed_should_notify"] is True
+    assert payload["notification"]["vetoed_opportunities"][0]["component"] == "panic_reversal"
+    assert payload["notification"]["vetoed_opportunities"][0]["veto"] == "macro_delever_blocks_panic_reversal"
 
 
 def test_market_regime_control_blocked_component_blocks_taco_opportunity() -> None:

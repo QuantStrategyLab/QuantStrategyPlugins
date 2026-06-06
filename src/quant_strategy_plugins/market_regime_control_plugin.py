@@ -140,6 +140,21 @@ def _reason_codes(payload: Mapping[str, Any] | None) -> tuple[str, ...]:
     return ()
 
 
+def _opportunity_summary(component: str, payload: Mapping[str, Any] | None, veto: str) -> dict[str, Any] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    return {
+        "component": component,
+        "profile": _optional_text(payload.get("plugin") or payload.get("profile")),
+        "as_of": _optional_text(payload.get("as_of")),
+        "canonical_route": _normalized_route(payload),
+        "suggested_action": _normalized_action(payload),
+        "reason_codes": _reason_codes(payload),
+        "veto": veto,
+        "manual_review_required": _as_bool(payload.get("manual_review_required"), default=False),
+    }
+
+
 def _blocked(payload: Mapping[str, Any] | None) -> bool:
     if not isinstance(payload, Mapping):
         return False
@@ -274,6 +289,7 @@ def build_market_regime_control_signal(
     crisis_defense_required = False
     blocked_actions: tuple[str, ...] = ()
     vetoes: list[str] = []
+    vetoed_opportunities: list[dict[str, Any]] = []
     reason_codes: list[str] = []
 
     if crisis_active:
@@ -288,9 +304,17 @@ def build_market_regime_control_signal(
         blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto", "panic_reversal_veto")
         reason_codes.extend(f"crisis:{code}" for code in _reason_codes(crisis) or ("true_crisis",))
         if taco_active:
-            vetoes.append("crisis_blocks_taco")
+            veto = "crisis_blocks_taco"
+            vetoes.append(veto)
+            summary = _opportunity_summary(COMPONENT_TACO, taco, veto)
+            if summary:
+                vetoed_opportunities.append(summary)
         if panic_reversal_active:
-            vetoes.append("crisis_blocks_panic_reversal")
+            veto = "crisis_blocks_panic_reversal"
+            vetoes.append(veto)
+            summary = _opportunity_summary(COMPONENT_PANIC_REVERSAL, panic_reversal, veto)
+            if summary:
+                vetoed_opportunities.append(summary)
     elif macro_active and macro_route == "crisis":
         final_route = ROUTE_RISK_OFF
         suggested_action = ACTION_DEFEND
@@ -302,9 +326,17 @@ def build_market_regime_control_signal(
         blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto", "panic_reversal_veto")
         reason_codes.extend(f"macro:{code}" for code in _reason_codes(macro) or ("crisis",))
         if taco_active:
-            vetoes.append("macro_crisis_blocks_taco")
+            veto = "macro_crisis_blocks_taco"
+            vetoes.append(veto)
+            summary = _opportunity_summary(COMPONENT_TACO, taco, veto)
+            if summary:
+                vetoed_opportunities.append(summary)
         if panic_reversal_active:
-            vetoes.append("macro_crisis_blocks_panic_reversal")
+            veto = "macro_crisis_blocks_panic_reversal"
+            vetoes.append(veto)
+            summary = _opportunity_summary(COMPONENT_PANIC_REVERSAL, panic_reversal, veto)
+            if summary:
+                vetoed_opportunities.append(summary)
     elif macro_active:
         final_route = ROUTE_RISK_REDUCED
         suggested_action = ACTION_DELEVER
@@ -316,9 +348,17 @@ def build_market_regime_control_signal(
         blocked_actions = ("increase_leverage", "taco_rebound_veto", "panic_reversal_veto")
         reason_codes.extend(f"macro:{code}" for code in _reason_codes(macro) or ("delever",))
         if taco_active:
-            vetoes.append("macro_delever_blocks_taco")
+            veto = "macro_delever_blocks_taco"
+            vetoes.append(veto)
+            summary = _opportunity_summary(COMPONENT_TACO, taco, veto)
+            if summary:
+                vetoed_opportunities.append(summary)
         if panic_reversal_active:
-            vetoes.append("macro_delever_blocks_panic_reversal")
+            veto = "macro_delever_blocks_panic_reversal"
+            vetoes.append(veto)
+            summary = _opportunity_summary(COMPONENT_PANIC_REVERSAL, panic_reversal, veto)
+            if summary:
+                vetoed_opportunities.append(summary)
     elif blocked:
         final_route = ROUTE_BLOCKED
         suggested_action = ACTION_BLOCKED
@@ -355,6 +395,8 @@ def build_market_regime_control_signal(
         "route_source": route_source,
         "reason_codes": tuple(dict.fromkeys(reason_codes)),
         "vetoes": tuple(vetoes),
+        "vetoed_opportunities": tuple(vetoed_opportunities),
+        "opportunity_vetoed_should_notify": bool(vetoed_opportunities),
     }
     position_control = {
         "allowed": True,

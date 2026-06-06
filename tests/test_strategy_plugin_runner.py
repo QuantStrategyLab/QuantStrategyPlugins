@@ -6,7 +6,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import quant_strategy_plugins.strategy_plugin_runner as strategy_plugin_runner_module
 from quant_strategy_plugins.crisis_response_research import ROUTE_TRUE_CRISIS
+from quant_strategy_plugins.market_regime_control_plugin import build_market_regime_control_signal
 from quant_strategy_plugins.strategy_plugin_runner import (
     EVIDENCE_AUTOMATION_APPROVED,
     EVIDENCE_NOTIFICATION_ONLY,
@@ -24,6 +26,7 @@ from quant_strategy_plugins.strategy_plugin_runner import (
     PLUGIN_TACO_REBOUND_SHADOW,
     STRATEGY_PLUGIN_LOG_SCHEMA_VERSION,
     STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION,
+    _apply_plugin_contract,
     load_plugin_config,
     main,
     run_configured_plugins,
@@ -401,11 +404,123 @@ def test_strategy_plugin_runner_can_enable_panic_reversal_inside_market_regime_c
     assert "panic_reversal:panic_reversal" in payload["position_control"]["reason_codes"]
     zh_notification = payload["notification"]["localized_messages"]["zh-CN"]
     assert "【机会复核｜TQQQ｜VIX 恐慌反转】" in zh_notification
-    assert "结论：触发人工复核，不自动加仓。" in zh_notification
+    assert "情况说明：" in zh_notification
+    assert "- 机会信号已触发。" in zh_notification
+    assert "建议操作：" in zh_notification
     assert "VIX 曾达到恐慌区间" in zh_notification
     assert "VIX 已从高点回落" in zh_notification
     assert "QQQ 3 日收益" in zh_notification
-    assert "panic_reversal_size_scalar = 0.00" in zh_notification
+    assert "执行权限" not in zh_notification
+    assert "仓位权限" not in zh_notification
+    assert "panic_reversal_size_scalar" not in zh_notification
+
+
+def test_market_regime_control_defaults_panic_crisis_suppression_to_arbiter(monkeypatch) -> None:
+    captured: list[bool | None] = []
+
+    def fake_build_panic_payload(_price_history: pd.DataFrame, plugin_config: dict[str, object]) -> dict[str, object]:
+        captured.append(plugin_config.get("suppress_when_price_crisis_guard_active"))
+        return {
+            "profile": "panic_reversal_shadow",
+            "as_of": "2025-04-09",
+            "canonical_route": "panic_reversal",
+            "suggested_action": "notify_manual_review",
+            "manual_review_required": True,
+            "panic_reversal_context_active": True,
+            "reason_codes": ["panic_reversal"],
+        }
+
+    monkeypatch.setattr(strategy_plugin_runner_module, "_build_panic_reversal_payload", fake_build_panic_payload)
+
+    payload = strategy_plugin_runner_module._build_market_regime_control_payload(
+        pd.DataFrame(),
+        {
+            "crisis_enabled": False,
+            "macro_enabled": False,
+            "taco_enabled": False,
+            "panic_reversal_enabled": True,
+        },
+    )
+    explicit_payload = strategy_plugin_runner_module._build_market_regime_control_payload(
+        pd.DataFrame(),
+        {
+            "crisis_enabled": False,
+            "macro_enabled": False,
+            "taco_enabled": False,
+            "panic_reversal_enabled": True,
+            "suppress_when_price_crisis_guard_active": True,
+        },
+    )
+
+    assert captured == [False, True]
+    assert payload["canonical_route"] == "opportunity_watch"
+    assert explicit_payload["canonical_route"] == "opportunity_watch"
+
+
+def test_market_regime_control_notification_surfaces_vetoed_panic_reversal() -> None:
+    payload = build_market_regime_control_signal(
+        {
+            "macro": {
+                "profile": "macro_risk_governor",
+                "as_of": "2025-04-09",
+                "canonical_route": "delever",
+                "suggested_action": "delever",
+                "leverage_scalar": 0.0,
+                "risk_asset_scalar": 1.0,
+                "reason_codes": ["vix_crisis_level"],
+            },
+            "panic_reversal": {
+                "profile": "panic_reversal_shadow",
+                "as_of": "2025-04-09",
+                "canonical_route": "panic_reversal",
+                "suggested_action": "notify_manual_review",
+                "manual_review_required": True,
+                "panic_reversal_context_active": True,
+                "reason_codes": ["panic_reversal", "vix_panic_reversal", "price_rebound_confirmation"],
+                "metrics": {
+                    "benchmark_symbol": "QQQ",
+                    "attack_symbol": "TQQQ",
+                    "vix": 33.62,
+                    "vix_previous": 52.33,
+                    "vix_lookback_high": 52.33,
+                    "vix_pullback_from_high": 0.3575,
+                    "vix_vix3m_ratio": 1.1237,
+                    "benchmark_3d_return": 0.1025,
+                    "benchmark_rebound_from_recent_low": 0.1200,
+                    "attack_rebound_from_recent_low": 0.3524,
+                },
+                "reversal_confirmation": {
+                    "confirmed": True,
+                    "thresholds": {
+                        "vix_high_lookback_days": 5,
+                        "min_vix_high": 50.0,
+                    },
+                },
+            },
+        }
+    )
+    contracted = _apply_plugin_contract(
+        payload,
+        strategy=STRATEGY_NAME,
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        mode="shadow",
+    )
+
+    assert contracted["canonical_route"] == "risk_reduced"
+    assert contracted["position_control"]["panic_reversal_allowed"] is False
+    assert contracted["notification"]["opportunity_vetoed_should_notify"] is True
+    zh_notification = contracted["notification"]["localized_messages"]["zh-CN"]
+    assert "【机会被拦截｜TQQQ｜VIX 恐慌反转】" in zh_notification
+    assert "情况说明：" in zh_notification
+    assert "- 当前仍处于降风险状态。" in zh_notification
+    assert "- 宏观降风险信号优先于 VIX 恐慌反转。" in zh_notification
+    assert "建议操作：" in zh_notification
+    assert "TQQQ 从近 5 日低点反弹 +35.2%" in zh_notification
+    assert "market_regime_control" not in zh_notification
+    assert "veto" not in zh_notification
+    assert "macro_delever_blocks_panic_reversal" not in zh_notification
+    assert "执行权限" not in zh_notification
+    assert "仓位权限" not in zh_notification
 
 
 def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path) -> None:
@@ -713,10 +828,11 @@ def test_strategy_plugin_runner_runs_taco_rebound_notification_mount_for_tqqq(tm
     assert "sleeve_suggestion" not in latest
     zh_notification = latest["localized_messages"]["notification"]["zh-CN"]
     assert "【机会复核｜TQQQ｜TACO 事件反弹】" in zh_notification
-    assert "结论：触发人工复核，不自动加仓。" in zh_notification
+    assert "情况说明：" in zh_notification
+    assert "- 机会信号已触发。" in zh_notification
     assert "事件：" in zh_notification
     assert "价格确认：" in zh_notification
-    assert "人工复核建议：" in zh_notification
+    assert "建议操作：" in zh_notification
 
 
 def test_strategy_plugin_runner_can_enable_taco_ai_audit_without_api_key(tmp_path, monkeypatch) -> None:
@@ -832,8 +948,9 @@ def test_strategy_plugin_runner_runs_panic_reversal_notification_mount_for_tqqq(
     assert latest["localized_messages"]["labels"]["canonical_route"]["zh-CN"] == "恐慌反转"
     zh_notification = latest["notification"]["localized_messages"]["zh-CN"]
     assert "【机会复核｜TQQQ｜VIX 恐慌反转】" in zh_notification
-    assert "执行权限：只通知；不下单；不修改仓位。" in zh_notification
     assert "TQQQ 从近 5 日低点反弹" in zh_notification
+    assert "执行权限" not in zh_notification
+    assert "仓位权限" not in zh_notification
 
 
 def test_strategy_plugin_runner_rejects_panic_reversal_for_soxl_strategy_mount(tmp_path) -> None:

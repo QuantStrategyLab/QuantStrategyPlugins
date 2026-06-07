@@ -405,8 +405,10 @@ def test_strategy_plugin_runner_can_enable_panic_reversal_inside_market_regime_c
     zh_notification = payload["notification"]["localized_messages"]["zh-CN"]
     assert "【机会复核｜TQQQ｜VIX 恐慌反转】" in zh_notification
     assert "情况说明：" in zh_notification
-    assert "- 机会信号已触发。" in zh_notification
+    assert "VIX 已从极端恐慌高位回落" in zh_notification
+    assert "QQQ/TQQQ 已从短期低点反弹" in zh_notification
     assert "建议操作：" in zh_notification
+    assert "检查 VIX 是否继续回落" in zh_notification
     assert "VIX 曾达到恐慌区间" in zh_notification
     assert "VIX 已从高点回落" in zh_notification
     assert "QQQ 3 日收益" in zh_notification
@@ -512,9 +514,11 @@ def test_market_regime_control_notification_surfaces_vetoed_panic_reversal() -> 
     zh_notification = contracted["notification"]["localized_messages"]["zh-CN"]
     assert "【机会被拦截｜TQQQ｜VIX 恐慌反转】" in zh_notification
     assert "情况说明：" in zh_notification
-    assert "- 当前仍处于降风险状态。" in zh_notification
-    assert "- 宏观降风险信号优先于 VIX 恐慌反转。" in zh_notification
+    assert "VIX 已从极端恐慌高位回落" in zh_notification
+    assert "但当前仍处于降风险状态，说明策略环境还没有完全解除防守" in zh_notification
+    assert "宏观降风险信号优先于 VIX 恐慌反转，所以这条通知先作为人工检查线索" in zh_notification
     assert "建议操作：" in zh_notification
+    assert "避免把一次反抽误判为趋势恢复" in zh_notification
     assert "TQQQ 从近 5 日低点反弹 +35.2%" in zh_notification
     assert "market_regime_control" not in zh_notification
     assert "veto" not in zh_notification
@@ -829,7 +833,7 @@ def test_strategy_plugin_runner_runs_taco_rebound_notification_mount_for_tqqq(tm
     zh_notification = latest["localized_messages"]["notification"]["zh-CN"]
     assert "【机会复核｜TQQQ｜TACO 事件反弹】" in zh_notification
     assert "情况说明：" in zh_notification
-    assert "- 机会信号已触发。" in zh_notification
+    assert "事件缓和后，QQQ/TQQQ 出现反弹确认" in zh_notification
     assert "事件：" in zh_notification
     assert "价格确认：" in zh_notification
     assert "建议操作：" in zh_notification

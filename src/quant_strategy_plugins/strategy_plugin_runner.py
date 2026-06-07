@@ -946,6 +946,17 @@ def _review_attack_symbol(*sources: Mapping[str, Any]) -> str:
     return ""
 
 
+def _review_benchmark_symbol(*sources: Mapping[str, Any]) -> str:
+    for source in sources:
+        for container_key in ("metrics", "rebound_confirmation"):
+            container = source.get(container_key)
+            if isinstance(container, Mapping):
+                symbol = str(container.get("benchmark_symbol") or "").strip().upper()
+                if symbol:
+                    return symbol
+    return ""
+
+
 def _manual_review_source_title(
     *,
     panic_payload: Mapping[str, Any],
@@ -1101,23 +1112,70 @@ def _format_manual_review_notification_message(
 
     vetoes = _message_reason_codes(_nested_mapping(payload, "arbiter").get("vetoes"))
     attack_symbol = _review_attack_symbol(panic_payload, taco_payload) or target_label
+    benchmark_symbol = _review_benchmark_symbol(panic_payload, taco_payload)
     source_title = _manual_review_source_title(panic_payload=panic_payload, taco_payload=taco_payload, locale=locale)
     if locale == "zh-CN":
+        benchmark_label = benchmark_symbol or "基准指数"
         route_status = _localized_opportunity_status(route, locale)
         veto_text = _message_join(_localized_opportunity_veto_labels(vetoes, locale), locale)
         card_prefix = "机会被拦截" if is_vetoed_opportunity_notice else "机会复核"
-        situation_lines = ["- 机会信号已触发。"]
-        if is_vetoed_opportunity_notice:
-            situation_lines.append(f"- 当前仍处于{route_status}。")
-            if vetoes:
-                situation_lines.append(f"- {veto_text}。")
+        if panic_payload and taco_payload:
+            opportunity_summary = (
+                f"- 事件缓和与 VIX 恐慌回落同时出现，{benchmark_label}/{attack_symbol} 已从短期低点反弹，"
+                "属于恐慌后反转复核信号。"
+            )
+        elif panic_payload:
+            opportunity_summary = (
+                f"- VIX 已从极端恐慌高位回落，{benchmark_label}/{attack_symbol} 已从短期低点反弹，"
+                "出现恐慌后反转观察信号。"
+            )
         else:
-            situation_lines.append(f"- 当前状态：{route_status}。")
-        guidance_first = (
-            "- 人工复核恐慌是否已缓和，以及策略侧是否已按自身风控处理。"
-            if is_vetoed_opportunity_notice
-            else "- 结合策略自身风控、持仓状态和最新基本面判断是否需要干预。"
-        )
+            opportunity_summary = (
+                f"- 事件缓和后，{benchmark_label}/{attack_symbol} 出现反弹确认，出现事件反弹复核信号。"
+            )
+        situation_lines = [opportunity_summary]
+        if is_vetoed_opportunity_notice:
+            situation_lines.append(f"- 但当前仍处于{route_status}，说明策略环境还没有完全解除防守。")
+            if vetoes:
+                situation_lines.append(f"- {veto_text}，所以这条通知先作为人工检查线索。")
+        else:
+            situation_lines.append(f"- 当前处于{route_status}，可以进入人工复核。")
+        if is_vetoed_opportunity_notice:
+            if panic_payload and taco_payload:
+                confirmation_line = (
+                    f"- 先看 VIX 是否继续回落、事件是否继续缓和、{benchmark_label}/{attack_symbol} "
+                    "反弹是否维持，避免把一次反抽误判为趋势恢复。"
+                )
+            elif panic_payload:
+                confirmation_line = (
+                    f"- 先看 VIX 是否继续回落、{benchmark_label}/{attack_symbol} 反弹是否维持，"
+                    "避免把一次反抽误判为趋势恢复。"
+                )
+            else:
+                confirmation_line = (
+                    f"- 先看事件是否继续缓和、{benchmark_label}/{attack_symbol} 反弹是否维持，"
+                    "避免把一次反抽误判为趋势恢复。"
+                )
+            guidance_lines = [
+                confirmation_line,
+                "- 对照策略侧当前仓位和风控状态，判断是否停止继续降风险、恢复观察，或继续保持防守。",
+                "- 如果 VIX 回升、价格跌回短期低点附近，忽略本次机会信号。",
+            ]
+        else:
+            if panic_payload and taco_payload:
+                confirmation_target = f"VIX 和事件是否继续改善，{benchmark_label}/{attack_symbol}"
+                reversal_target = "VIX、事件或价格确认"
+            elif panic_payload:
+                confirmation_target = f"VIX 是否继续回落，{benchmark_label}/{attack_symbol}"
+                reversal_target = "VIX 或价格确认"
+            else:
+                confirmation_target = f"事件是否继续缓和，{benchmark_label}/{attack_symbol}"
+                reversal_target = "事件或价格确认"
+            guidance_lines = [
+                f"- 检查 {confirmation_target} 的价格确认是否延续。",
+                "- 对照策略侧仓位和风险预算，判断是否需要人工干预。",
+                f"- 如果 {reversal_target}反转，忽略本次信号。",
+            ]
         lines = [
             f"【{card_prefix}｜{attack_symbol}｜{source_title}】",
             f"日期：{as_of or '未知日期'}",
@@ -1131,27 +1189,73 @@ def _format_manual_review_notification_message(
         lines.extend(
             [
                 "建议操作：",
-                guidance_first,
-                "- 若后续 VIX 或价格确认反转，本信号需要重新评估。",
+                *guidance_lines,
             ]
         )
         return "\n".join(lines)
 
+    benchmark_label = benchmark_symbol or "benchmark"
     route_status = _localized_opportunity_status(route, locale)
     veto_text = _message_join(_localized_opportunity_veto_labels(vetoes, locale), locale)
     card_prefix = "Opportunity Vetoed" if is_vetoed_opportunity_notice else "Opportunity Review"
-    situation_lines = ["- Opportunity signal triggered."]
-    if is_vetoed_opportunity_notice:
-        situation_lines.append(f"- Current state is still {route_status}.")
-        if vetoes:
-            situation_lines.append(f"- {veto_text}.")
+    if panic_payload and taco_payload:
+        opportunity_summary = (
+            f"- Event de-escalation and a VIX panic pullback are both present; {benchmark_label}/{attack_symbol} "
+            "has rebounded from short-term lows, so this is a panic-reversal review signal."
+        )
+    elif panic_payload:
+        opportunity_summary = (
+            f"- VIX has pulled back from extreme panic levels, and {benchmark_label}/{attack_symbol} "
+            "has rebounded from short-term lows, so this is a panic-reversal watch signal."
+        )
     else:
-        situation_lines.append(f"- Current state: {route_status}.")
-    guidance_first = (
-        "- Manually review whether panic has eased and whether the strategy-side risk controls have already handled it."
-        if is_vetoed_opportunity_notice
-        else "- Consider strategy-side risk controls, current exposure, and latest fundamentals before intervening."
-    )
+        opportunity_summary = (
+            f"- After event de-escalation, {benchmark_label}/{attack_symbol} shows rebound confirmation, "
+            "so this is an event-rebound review signal."
+        )
+    situation_lines = [opportunity_summary]
+    if is_vetoed_opportunity_notice:
+        situation_lines.append(f"- Current state is still {route_status}, so the strategy environment is not fully out of defense.")
+        if vetoes:
+            situation_lines.append(f"- {veto_text}; treat this notification as a manual check cue for now.")
+    else:
+        situation_lines.append(f"- Current state is {route_status}, so it can move into manual review.")
+    if is_vetoed_opportunity_notice:
+        if panic_payload and taco_payload:
+            confirmation_line = (
+                f"- Check whether VIX keeps falling, the event keeps de-escalating, and the "
+                f"{benchmark_label}/{attack_symbol} rebound holds; avoid treating a one-day bounce as recovery."
+            )
+        elif panic_payload:
+            confirmation_line = (
+                f"- Check whether VIX keeps falling and whether the {benchmark_label}/{attack_symbol} rebound holds; "
+                "avoid treating a one-day bounce as recovery."
+            )
+        else:
+            confirmation_line = (
+                f"- Check whether the event keeps de-escalating and whether the "
+                f"{benchmark_label}/{attack_symbol} rebound holds; avoid treating a one-day bounce as recovery."
+            )
+        guidance_lines = [
+            confirmation_line,
+            "- Compare against the strategy-side exposure and risk-control state before deciding whether to stop further de-risking, return to watch, or stay defensive.",
+            "- Ignore this opportunity signal if VIX rises again or price falls back near short-term lows.",
+        ]
+    else:
+        if panic_payload and taco_payload:
+            confirmation_target = f"VIX and event conditions keep improving and whether {benchmark_label}/{attack_symbol}"
+            reversal_target = "VIX, event context, or price confirmation"
+        elif panic_payload:
+            confirmation_target = f"VIX keeps falling and whether {benchmark_label}/{attack_symbol}"
+            reversal_target = "VIX or price confirmation"
+        else:
+            confirmation_target = f"the event keeps de-escalating and whether {benchmark_label}/{attack_symbol}"
+            reversal_target = "event context or price confirmation"
+        guidance_lines = [
+            f"- Check whether {confirmation_target} price confirmation continues.",
+            "- Compare against strategy-side exposure and risk budget before any manual intervention.",
+            f"- Ignore this signal if {reversal_target} reverses.",
+        ]
     lines = [
         f"[{card_prefix} | {attack_symbol} | {source_title}]",
         f"Date: {as_of or 'unknown date'}",
@@ -1165,8 +1269,7 @@ def _format_manual_review_notification_message(
     lines.extend(
         [
             "Suggested action:",
-            guidance_first,
-            "- Reassess this signal if VIX or price confirmation later reverses.",
+            *guidance_lines,
         ]
     )
     return "\n".join(lines)

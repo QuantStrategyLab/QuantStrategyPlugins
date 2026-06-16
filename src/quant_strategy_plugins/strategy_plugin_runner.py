@@ -318,12 +318,16 @@ LOCALIZED_REASON_LABELS: dict[str, dict[str, str]] = {
         "en-US": "New-high/new-low spread watch",
         "zh-CN": "新高新低差观察",
     },
+    "no_action": {"en-US": "No action", "zh-CN": "无动作"},
+    "opportunity_watch": {"en-US": "Opportunity watch", "zh-CN": "机会观察"},
     "pentagon_pizza_watch": {"en-US": "Pentagon pizza index watch", "zh-CN": "五角大楼比萨指数观察"},
     "panic_reversal": {"en-US": "Panic reversal context", "zh-CN": "恐慌反转上下文"},
     "panic_reversal_watch": {"en-US": "Panic reversal watch", "zh-CN": "恐慌反转观察"},
     "put_call_stress_watch": {"en-US": "Put/call stress watch", "zh-CN": "Put/call 压力观察"},
     "price_crisis_guard_active": {"en-US": "Price crisis guard active", "zh-CN": "价格危机保护激活"},
     "price_rebound_confirmation": {"en-US": "Price rebound confirmation", "zh-CN": "价格反弹确认"},
+    "risk_off": {"en-US": "Risk off", "zh-CN": "风险关闭"},
+    "risk_reduced": {"en-US": "Risk reduced", "zh-CN": "风险降低"},
     "safe_haven_demand_watch": {"en-US": "Safe-haven demand watch", "zh-CN": "避险需求观察"},
     "skew_high_watch": {"en-US": "SKEW high watch", "zh-CN": "SKEW 偏高观察"},
     "taco_rebound": {"en-US": "TACO rebound context", "zh-CN": "TACO 反弹上下文"},
@@ -341,6 +345,7 @@ LOCALIZED_REASON_LABELS: dict[str, dict[str, str]] = {
         "en-US": "Yield-curve inversion watch",
         "zh-CN": "收益率曲线倒挂观察",
     },
+    "watch": {"en-US": "Watch state", "zh-CN": "观察状态"},
 }
 
 OPPORTUNITY_REVIEW_STATUS_LABELS: dict[str, dict[str, str]] = {

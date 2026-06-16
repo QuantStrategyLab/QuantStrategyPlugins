@@ -367,11 +367,26 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
     assert payload["localized_messages"]["labels"]["canonical_route"]["en-US"] == "Risk reduced"
+    assert payload["localized_messages"]["labels"]["plugin"]["zh-CN"] == "市场状态控制"
     assert payload["localized_messages"]["labels"]["suggested_action"]["zh-CN"] == "降杠杆"
     assert payload["notification"]["localized_message_schema_version"] == STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION
-    assert "风险降低" in payload["notification"]["localized_messages"]["zh-CN"]
+    zh_notification = payload["notification"]["localized_messages"]["zh-CN"]
+    assert "市场状态控制" in zh_notification
+    assert "风险降低" in zh_notification
+    assert "market_regime_control" not in zh_notification
+    assert "risk_reduced" not in zh_notification
+    assert "delever" not in zh_notification
     assert "宏观：VIX 危机水平" in payload["notification"]["localized_reason_labels"]["zh-CN"]
     assert payload["log_record"]["canonical_route"] == "risk_reduced"
+    zh_log = payload["log_record"]["localized_messages"]["zh-CN"]
+    assert "插件=市场状态控制" in zh_log
+    assert "路线=风险降低" in zh_log
+    assert "动作=降杠杆" in zh_log
+    assert "market_regime_control" not in zh_log
+    assert "risk_reduced" not in zh_log
+    assert "delever" not in zh_log
+    assert "原因码=" not in zh_log
+    assert "macro:vix_crisis_level" not in zh_log
 
 
 def test_strategy_plugin_runner_can_enable_panic_reversal_inside_market_regime_control(tmp_path) -> None:

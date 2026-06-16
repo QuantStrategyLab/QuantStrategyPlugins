@@ -255,6 +255,13 @@ LOCALIZED_ACTION_LABELS: dict[str, dict[str, str]] = {
     "notify_manual_review": {"en-US": "Notify manual review", "zh-CN": "通知人工复核"},
     "watch_only": {"en-US": "Watch only", "zh-CN": "仅观察"},
 }
+LOCALIZED_PLUGIN_LABELS: dict[str, dict[str, str]] = {
+    PLUGIN_CRISIS_RESPONSE_SHADOW: {"en-US": "Crisis response watch", "zh-CN": "危机响应观察"},
+    PLUGIN_MACRO_RISK_GOVERNOR: {"en-US": "Macro risk governor", "zh-CN": "宏观风险控制"},
+    PLUGIN_MARKET_REGIME_CONTROL: {"en-US": "Market regime control", "zh-CN": "市场状态控制"},
+    PLUGIN_PANIC_REVERSAL_SHADOW: {"en-US": "Panic reversal watch", "zh-CN": "恐慌反转观察"},
+    PLUGIN_TACO_REBOUND_SHADOW: {"en-US": "TACO rebound watch", "zh-CN": "TACO 反弹观察"},
+}
 LOCALIZED_SOURCE_LABELS: dict[str, dict[str, str]] = {
     "crisis": {"en-US": "Crisis", "zh-CN": "危机"},
     "data_quality": {"en-US": "Data quality", "zh-CN": "数据质量"},
@@ -1289,7 +1296,7 @@ def _format_notification_message(
     locale: str,
     target_label: str,
     target_type: str,
-    plugin: str,
+    plugin_label: str,
     as_of: str,
     route_label: str,
     action_label: str,
@@ -1301,13 +1308,13 @@ def _format_notification_message(
         prefix = "需要通知" if should_notify else "无需通知"
         scope = "通知目标" if target_type == "notification_target" else "策略"
         return (
-            f"{prefix}：{scope} {target_label} 的 {plugin} 在 {as_of or '未知日期'} 输出"
+            f"{prefix}：{scope} {target_label} 的 {plugin_label} 在 {as_of or '未知日期'} 输出"
             f"市场状态 {route_label}，建议动作 {action_label}，原因：{reason_text}。"
         )
     prefix = "Notification required" if should_notify else "No notification required"
     scope = "notification target" if target_type == "notification_target" else "strategy"
     return (
-        f"{prefix}: {plugin} for {scope} {target_label} produced market regime {route_label} "
+        f"{prefix}: {plugin_label} for {scope} {target_label} produced market regime {route_label} "
         f"on {as_of or 'unknown date'} with suggested action {action_label}. Reasons: {reason_text}."
     )
 
@@ -1318,6 +1325,7 @@ def _format_log_message(
     target_label: str,
     target_type: str,
     plugin: str,
+    plugin_label: str,
     as_of: str,
     route: str,
     action: str,
@@ -1331,8 +1339,8 @@ def _format_log_message(
     if locale == "zh-CN":
         target_key = "通知目标" if target_type == "notification_target" else "策略"
         return (
-            f"{target_key}={target_label} 插件={plugin} 日期={as_of or '未知'} 路线={route}({route_label}) "
-            f"动作={action}({action_label}) 原因码={code_text} 原因={label_text}"
+            f"{target_key}={target_label} 插件={plugin_label} 日期={as_of or '未知'} "
+            f"路线={route_label} 动作={action_label} 原因={label_text}"
         )
     return (
         f"target_type={target_type} target={target_label} plugin={plugin} as_of={as_of or 'unknown'} route={route}({route_label}) "
@@ -1364,6 +1372,9 @@ def _build_localized_messages(
     reason_labels = {
         locale: list(_localized_reason_labels(reason_codes, locale)) for locale in SUPPORTED_MESSAGE_LOCALES
     }
+    plugin_labels = {
+        locale: _localized_label(LOCALIZED_PLUGIN_LABELS, plugin, locale) for locale in SUPPORTED_MESSAGE_LOCALES
+    }
     notification_messages = {
         locale: _format_manual_review_notification_message(
             payload,
@@ -1377,7 +1388,7 @@ def _build_localized_messages(
             locale=locale,
             target_label=target_label,
             target_type=target_type,
-            plugin=plugin,
+            plugin_label=plugin_labels[locale],
             as_of=as_of,
             route_label=route_labels[locale],
             action_label=action_labels[locale],
@@ -1392,6 +1403,7 @@ def _build_localized_messages(
             target_label=target_label,
             target_type=target_type,
             plugin=plugin,
+            plugin_label=plugin_labels[locale],
             as_of=as_of,
             route=route,
             action=action,
@@ -1407,6 +1419,7 @@ def _build_localized_messages(
         "default_locale": DEFAULT_MESSAGE_LOCALE,
         "supported_locales": list(SUPPORTED_MESSAGE_LOCALES),
         "labels": {
+            "plugin": plugin_labels,
             "canonical_route": route_labels,
             "suggested_action": action_labels,
             "reason_codes": reason_labels,

@@ -44,13 +44,46 @@ panic_reversal_enabled = false
 [strategy_plugins.outputs]
 output_dir = "data/output/tqqq_growth_income/plugins/market_regime_control"
 
+[[strategy_plugins]]
+strategy = "soxl_soxx_trend_income"
+plugin = "market_regime_control"
+enabled = true
+# SOXL/SOXX consumes automation-approved deterministic fields only. The
+# strategy default allows risk_off and volatility_delever_context retention
+# profiles, while risk_reduced position impact remains disabled locally.
+# TACO, panic reversal, AI audit, OSINT, and localized text remain
+# manual-review / display context.
+
+[strategy_plugins.inputs]
+prices = "data/output/market_regime_control/input/soxl_price_history.csv"
+external_context = "data/output/market_regime_control/input/external_context.csv"
+event_set = "full"
+benchmark_symbol = "SOXX"
+attack_symbol = "SOXL"
+vix_symbols = ["VIX", "^VIX", "VIXCLS"]
+vix3m_symbols = ["VIX3M", "^VIX3M", "VXV", "^VXV"]
+credit_pairs = ["HYG:IEF", "LQD:IEF"]
+financial_symbols = ["XLF", "KRE"]
+rate_symbols = ["IEF", "TLT"]
+strategy_policy = "levered_growth_income_v1"
+realized_vol_threshold = 0.30
+realized_vol_requires_confirmation = true
+external_stress_actionable = false
+delever_risk_asset_scalar = 0.0
+taco_enabled = false
+panic_reversal_enabled = false
+crisis_enabled = true
+macro_enabled = true
+
+[strategy_plugins.outputs]
+output_dir = "data/output/soxl_soxx_trend_income/plugins/market_regime_control"
+
 [[notification_targets]]
 notification_target = "market_regime_notification"
 plugin = "market_regime_control"
 enabled = true
-# General market-regime notification. This artifact is not mounted into the
-# SOXL/SOXX strategy runtime; sector-levered SOXL keeps its own validated SOXX
-# volatility gate and humans decide whether broad macro/crisis notices matter.
+# General market-regime notification. This artifact is separate from strategy
+# runtime metadata and is for portfolio-wide manual review only.
 
 [notification_targets.inputs]
 prices = "data/output/market_regime_control/input/soxl_price_history.csv"

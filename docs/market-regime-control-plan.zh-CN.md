@@ -71,7 +71,8 @@
 - TQQQ 杠杆增长收益策略
   默认消费 `position_control`。`risk_off` 降到现金类或非风险资产；`risk_reduced` 按策略配置降低杠杆或风险预算；TACO 和 panic reversal 只触发人工复核和本地 veto，不触发自动加仓。
 - SOXL/SOXX 趋势收益策略
-  不默认挂载统一插件，也不消费 `position_control`。SOXL 继续只使用已经通过复核的 SOXX 自身趋势和波动率降杠杆门；宏观、危机、panic reversal 和 OSINT 信号只进入通用通知，由人工决定是否干预。
+  默认挂载统一插件。`risk_off` 可把风险暴露转向防守资产；`risk_reduced` 在策略默认配置中仍不产生仓位影响。SOXL 继续使用已复核的 SOXX 趋势和本地波动率降杠杆门，并可在本地波动率触发时消费确定性的
+  `position_control.volatility_delever_context` retention profiles。TACO、panic reversal、AI audit、OSINT 和本地化通知文案仍只作为人工复核上下文。
 - Global ETF、Russell 1000、Mega Cap 类轮动策略
   默认支持统一插件。`risk_reduced` 建议做 50% 风险预算缩放，`risk_off` 建议归零风险资产预算。
 - DCA 或收入型低频策略
@@ -95,10 +96,8 @@
 - 人工通知正文只写“情况说明”和“建议操作”，不展示 `position_control_allowed`、
   `execution_controls`、route code 或 veto code 等内部治理字段。
 
-SOXL/SOXX 不出现在 `market_regime_control` 的策略级消费 registry 中；它通过
-`notification_targets.market_regime_notification` 接收通用通知。通用通知不是
-strategy，不允许进入策略 runtime metadata，也不能影响仓位，避免配置误用把通知
-信号升级成自动调仓。
+SOXL/SOXX 现在出现在 `market_regime_control` 的策略级消费 registry 中，用于消费已通过自动化证据批准的确定性字段。它仍保留
+`notification_targets.market_regime_notification` 通用通知 artifact，供组合层人工复核。通用通知不是 strategy，不允许进入策略 runtime metadata，也不能影响仓位，避免把 notification-only 证据升级成自动调仓。
 
 当前观察指标分层：
 
@@ -166,7 +165,7 @@ TQQQ 2010-2026 真实产品窗口：
 ## 当前推荐默认值
 
 - 杠杆策略：默认挂载统一插件，允许 `risk_off` 生效。
-- 高波动行业杠杆策略：除非回测证明自动消费能提升收益/回撤组合，否则不默认挂载统一插件；SOXL 当前只接收通用通知。
+- 高波动行业杠杆策略：SOXL 在 2026-06-16 retention replay 后默认挂载统一插件；默认策略配置允许 `risk_off` 和确定性波动率降杠杆 retention context，但不默认应用 `risk_reduced` 仓位影响。
 - 轮动策略：默认开启 50% risk scaling 和 `risk_off` 归零。
 - TACO / panic reversal：默认通知-only；只有没有危机和宏观降风险时才允许提示机会。panic reversal 默认保持研究开关关闭，直到事件窗口和 no-regression 报告证明可提升权限。
 - AI audit：默认不参与交易权限，只能写审计结论和通知证据。

@@ -70,6 +70,39 @@ def _soxl_quiet_prices() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _soxl_price_rebound_prices() -> pd.DataFrame:
+    dates = pd.bdate_range("2025-01-02", periods=230)
+    trend = [100.0 + offset * 0.18 for offset in range(220)]
+    last = trend[-1]
+    tail = [
+        last,
+        last * 0.96,
+        last * 1.01,
+        last * 0.97,
+        last * 1.02,
+        last * 0.98,
+        last * 1.03,
+        last * 0.99,
+        last * 1.04,
+        last * 1.08,
+    ]
+    soxx = pd.Series(trend + tail, index=dates)
+    prices = {
+        "SOXX": soxx,
+        "SOXL": soxx * 3.0,
+        "SPY": pd.Series([100.0 + offset * 0.06 for offset in range(len(dates))], index=dates),
+        "XLF": pd.Series([100.0 + offset * 0.05 for offset in range(len(dates))], index=dates),
+        "HYG": pd.Series(100.0, index=dates),
+        "IEF": pd.Series(100.0, index=dates),
+        "VIX": pd.Series(18.0, index=dates),
+    }
+    rows: list[dict[str, object]] = []
+    for symbol, series in prices.items():
+        for as_of, close in series.items():
+            rows.append({"symbol": symbol, "as_of": as_of, "close": close, "volume": 1_000_000})
+    return pd.DataFrame(rows)
+
+
 def _financial_crisis_prices() -> pd.DataFrame:
     dates = pd.bdate_range("2007-01-02", periods=310)
     rows: list[dict[str, object]] = []
@@ -631,6 +664,54 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     volatility_delever_context = payload["position_control"]["volatility_delever_context"]
     assert volatility_delever_context["actionable_for_position_control"] is True
     assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
+
+
+def test_strategy_plugin_runner_adds_soxl_price_rebound_retention_context(tmp_path) -> None:
+    prices_path = tmp_path / "market_regime_soxl_rebound_prices.csv"
+    output_dir = tmp_path / SOXL_STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
+    prices = _soxl_price_rebound_prices()
+    prices.to_csv(prices_path, index=False)
+    as_of = pd.Timestamp(prices["as_of"].max()).date().isoformat()
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": SOXL_STRATEGY_NAME,
+                "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                "enabled": True,
+                "inputs": {
+                    "prices": str(prices_path),
+                    "as_of": as_of,
+                    "benchmark_symbol": "SOXX",
+                    "attack_symbol": "SOXL",
+                    "vix_symbols": ["VIX"],
+                    "credit_pairs": ["HYG:IEF"],
+                    "financial_symbols": ["XLF"],
+                    "crisis_enabled": False,
+                    "macro_enabled": False,
+                    "taco_enabled": False,
+                },
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    assert summary["strategy_plugins"][0]["status"] == "ok"
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["canonical_route"] == "no_action"
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["rebound_sources"] == ["price_rebound"]
+    price_context = volatility_delever_context["price_rebound_context"]
+    assert price_context["confirmed"] is True
+    assert price_context["volatility_triggered"] is True
+    assert price_context["hard_filter"] is False
+    assert price_context["soft_filter"] is False
+    soxl_profile = volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]
+    assert soxl_profile["retention_ratio"] == 0.5
+    assert soxl_profile["reason_codes"] == ["constructive", "price_rebound_confirm"]
 
 
 def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> None:

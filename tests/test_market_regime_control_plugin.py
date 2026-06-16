@@ -111,6 +111,31 @@ def test_market_regime_control_taco_is_notification_with_local_veto_only() -> No
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
 
 
+def test_market_regime_control_price_rebound_only_updates_volatility_retention_profile() -> None:
+    payload = build_market_regime_control_signal(
+        {},
+        volatility_delever_price_rebound_context={
+            "schema_version": "volatility_delever_price_rebound_context.v1",
+            "confirmed": True,
+            "reason_codes": ["price_rebound_confirm"],
+        },
+    )
+
+    assert payload["canonical_route"] == "no_action"
+    assert payload["suggested_action"] == "no_action"
+    assert payload["notification"]["should_notify"] is False
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["rebound_confirm"] is True
+    assert volatility_delever_context["rebound_sources"] == ["price_rebound"]
+    assert (
+        volatility_delever_context["retention_profiles"]["tqqq_step_softzero_0.25_0.50"]["retention_ratio"]
+        == 0.25
+    )
+    soxl_profile = volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]
+    assert soxl_profile["retention_ratio"] == 0.5
+    assert soxl_profile["reason_codes"] == ["constructive", "price_rebound_confirm"]
+
+
 def test_market_regime_control_panic_reversal_is_opportunity_watch_only() -> None:
     payload = build_market_regime_control_signal(
         {

@@ -107,10 +107,13 @@ Recommended policy:
   strategy configuration. TACO and panic reversal remain manual-review
   notification and local veto context only.
 - SOXL/SOXX trend/income strategy
-  Does not mount the unified plugin by default and does not consume
-  `position_control`. SOXL keeps its own reviewed SOXX trend and volatility
-  de-leveraging gates. Macro, crisis, panic reversal, and OSINT signals are
-  delivered as general notifications for manual review.
+  Mounts the unified plugin by default. `risk_off` may move risk exposure toward
+  defensive assets, while `risk_reduced` remains disabled in the strategy
+  default config. SOXL keeps its reviewed SOXX trend and volatility de-levering
+  gates, and may consume the deterministic
+  `position_control.volatility_delever_context` retention profiles when its
+  local volatility gate triggers. TACO, panic reversal, AI audit, OSINT, and
+  localized notification copy remain manual-review context only.
 - Global ETF, Russell 1000, and Mega Cap rotation
   strategies
   Support the unified plugin by default. `risk_reduced` should apply a 50% risk
@@ -148,12 +151,12 @@ the human notification body:
   action; it should not display internal governance fields such as
   `position_control_allowed`, `execution_controls`, route codes, or veto codes.
 
-SOXL/SOXX is not in the strategy-level `market_regime_control` consumption
-registry. It receives broad market-regime context through the general
-`notification_targets.market_regime_notification` artifact. That notification
-target is not a strategy, cannot enter strategy runtime metadata, and cannot
-affect position sizing; this prevents accidental promotion from notification
-into automated de-risking.
+SOXL/SOXX is now in the strategy-level `market_regime_control` consumption
+registry for automation-approved deterministic fields. It also keeps the
+general `notification_targets.market_regime_notification` artifact for
+portfolio-wide human review. That notification target is not a strategy, cannot
+enter strategy runtime metadata, and cannot affect position sizing; this keeps
+notification-only evidence separate from automated de-risking.
 
 ## Indicator Tiers
 
@@ -280,9 +283,10 @@ Design implications:
 - Leveraged broad-index strategies:
   mount the unified plugin by default and allow `risk_off` to take effect.
 - High-volatility sector leveraged strategies:
-  do not mount the unified plugin by default unless backtests prove automated
-  consumption improves the return/drawdown tradeoff. SOXL currently receives
-  general notifications only.
+  SOXL mounts the unified plugin by default after the 2026-06-16 retention
+  replay. Its default strategy config allows `risk_off` and deterministic
+  volatility-delever retention context, but does not apply `risk_reduced`
+  position impact by default.
 - Rotation strategies:
   enable 50% risk scaling for `risk_reduced` and zero risk-asset budget for
   `risk_off`.

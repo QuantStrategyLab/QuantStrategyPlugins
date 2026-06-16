@@ -93,6 +93,7 @@ class PluginConsumptionPolicy:
     since_version: str
     description: str
     intended_strategy_role: str | None = None
+    manual_review_notification_target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         evidence_status=EVIDENCE_AUTOMATION_APPROVED,
         since_version="strategy_plugins.v1",
         description="Backtested automatic macro/crisis risk controls for the TQQQ growth-income strategy.",
+        manual_review_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
@@ -125,6 +127,7 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
         description="Pending 25-30 year market-regime-control validation for broad ETF rotation.",
+        manual_review_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
@@ -134,6 +137,7 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
         description="Pending 25-30 year market-regime-control validation for the Russell 1000 defensive sleeve.",
+        manual_review_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
@@ -143,6 +147,7 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
         description="Pending 25-30 year market-regime-control validation for the mega-cap leader rotation profile.",
+        manual_review_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
@@ -152,6 +157,7 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         evidence_status=EVIDENCE_AUTOMATION_APPROVED,
         since_version="strategy_plugins.v1",
         description="Backtested automatic macro/crisis risk controls for the SOXL/SOXX trend-income strategy.",
+        manual_review_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
@@ -1504,6 +1510,14 @@ def _apply_plugin_contract(
         execution_controls["notification_allowed"] = bool(consumption_policy.notification_allowed)
         execution_controls["position_control_allowed"] = bool(consumption_policy.position_control_allowed)
         execution_controls["consumption_evidence_status"] = consumption_policy.evidence_status
+        if consumption_policy.manual_review_notification_target:
+            delegated_notification_target = consumption_policy.manual_review_notification_target
+            execution_controls["manual_review_notification_delegated"] = True
+            execution_controls["manual_review_notification_target"] = delegated_notification_target
+            execution_controls["manual_review_notification_delegate"] = (
+                f"notification_target:{delegated_notification_target}"
+            )
+            execution_controls["manual_review_notification_authority"] = "plugin_notification_target"
         if consumption_policy.position_control_allowed:
             execution_controls["capital_impact"] = "strategy_opt_in"
             execution_controls["strategy_runtime_metadata_allowed"] = True

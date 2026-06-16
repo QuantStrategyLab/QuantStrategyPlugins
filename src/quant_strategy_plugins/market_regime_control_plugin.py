@@ -155,6 +155,62 @@ def _opportunity_summary(component: str, payload: Mapping[str, Any] | None, veto
     }
 
 
+def _retention_profile(retention_ratio: float, *reason_codes: str) -> dict[str, Any]:
+    return {
+        "retention_ratio": _clamp_ratio(retention_ratio, default=0.0),
+        "reason_codes": tuple(code for code in reason_codes if code),
+    }
+
+
+def _build_volatility_delever_context(
+    *,
+    final_route: str,
+    crisis_defense_required: bool,
+    blocked: bool,
+    macro_active: bool,
+    macro_watch: bool,
+    taco_active: bool,
+    panic_reversal_active: bool,
+    reason_codes: Sequence[str],
+) -> dict[str, Any]:
+    hard_risk = bool(final_route == ROUTE_RISK_OFF or crisis_defense_required)
+    soft_risk = bool(final_route == ROUTE_RISK_REDUCED or (macro_active and not hard_risk))
+    rebound_confirm = bool(taco_active or panic_reversal_active)
+    constructive = bool(not hard_risk and not soft_risk and not blocked)
+    if hard_risk:
+        tqqq_softzero_025 = _retention_profile(0.0, "hard_risk")
+        tqqq_softzero_035 = _retention_profile(0.0, "hard_risk")
+        soxl_rebound = _retention_profile(0.0, "hard_risk")
+    elif soft_risk:
+        tqqq_softzero_025 = _retention_profile(0.0, "soft_risk")
+        tqqq_softzero_035 = _retention_profile(0.0, "soft_risk")
+        soxl_rebound = _retention_profile(0.0, "soft_risk")
+    elif rebound_confirm:
+        tqqq_softzero_025 = _retention_profile(0.50, "constructive", "rebound_confirm")
+        tqqq_softzero_035 = _retention_profile(0.50, "constructive", "rebound_confirm")
+        soxl_rebound = _retention_profile(0.50 if constructive else 0.25, "constructive", "rebound_confirm")
+    else:
+        tqqq_softzero_025 = _retention_profile(0.25, "non_soft_risk")
+        tqqq_softzero_035 = _retention_profile(0.35, "non_soft_risk")
+        soxl_rebound = _retention_profile(0.0, "rebound_not_confirmed")
+    return {
+        "schema_version": "volatility_delever_context.v1",
+        "source": "deterministic_market_regime_components",
+        "actionable_for_position_control": bool(not blocked),
+        "hard_risk": hard_risk,
+        "soft_risk": soft_risk,
+        "constructive": constructive,
+        "rebound_confirm": rebound_confirm,
+        "macro_watch": bool(macro_watch),
+        "reason_codes": tuple(dict.fromkeys(reason_codes)),
+        "retention_profiles": {
+            "tqqq_step_softzero_0.25_0.50": tqqq_softzero_025,
+            "tqqq_step_softzero_0.35_0.50": tqqq_softzero_035,
+            "soxl_step_rebound_0.25_0.50": soxl_rebound,
+        },
+    }
+
+
 def _blocked(payload: Mapping[str, Any] | None) -> bool:
     if not isinstance(payload, Mapping):
         return False
@@ -398,6 +454,16 @@ def build_market_regime_control_signal(
         "vetoed_opportunities": tuple(vetoed_opportunities),
         "opportunity_vetoed_should_notify": bool(vetoed_opportunities),
     }
+    volatility_delever_context = _build_volatility_delever_context(
+        final_route=final_route,
+        crisis_defense_required=crisis_defense_required,
+        blocked=blocked,
+        macro_active=macro_active,
+        macro_watch=macro_watch,
+        taco_active=taco_active,
+        panic_reversal_active=panic_reversal_active,
+        reason_codes=reason_codes,
+    )
     position_control = {
         "allowed": True,
         "mode": SHADOW_MODE,
@@ -417,6 +483,7 @@ def build_market_regime_control_signal(
         "defensive_destination_role": "cash_like" if final_route == ROUTE_RISK_OFF else "unlevered_or_cash_like",
         "reason_codes": tuple(dict.fromkeys(reason_codes)),
         "vetoes": tuple(vetoes),
+        "volatility_delever_context": volatility_delever_context,
     }
     signal_as_of = _signal_as_of(components, as_of)
     payload = {

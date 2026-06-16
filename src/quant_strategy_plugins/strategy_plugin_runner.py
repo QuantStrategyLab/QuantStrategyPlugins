@@ -144,6 +144,15 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         description="Local risk-scaling consumer for the mega-cap leader rotation profile.",
     ),
     PluginConsumptionPolicy(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        strategy="soxl_soxx_trend_income",
+        notification_allowed=True,
+        position_control_allowed=True,
+        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        since_version="strategy_plugins.v1",
+        description="Backtested automatic macro/crisis risk controls for the SOXL/SOXX trend-income strategy.",
+    ),
+    PluginConsumptionPolicy(
         plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
         strategy="tqqq_growth_income",
         notification_allowed=True,

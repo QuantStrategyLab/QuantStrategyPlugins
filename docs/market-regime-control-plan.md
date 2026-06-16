@@ -162,6 +162,14 @@ portfolio-wide human review. That notification target is not a strategy, cannot
 enter strategy runtime metadata, and cannot affect position sizing; this keeps
 notification-only evidence separate from automated de-risking.
 
+For SOXL local volatility deleveraging, automated retention is limited to a
+backtestable price/volatility rebound context: SOXX must remain in trend, the
+short moving-average slope must be positive, realized volatility must be at the
+strategy's dynamic deleveraging threshold, and VIX, HYG/IEF, and XLF/SPY filters
+must avoid hard or soft stress. This context only feeds
+`position_control.volatility_delever_context.retention_profiles`; it does not
+change the `risk_off`, `risk_reduced`, or `watch` route.
+
 ## Indicator Tiers
 
 Current indicator tiers:
@@ -169,6 +177,11 @@ Current indicator tiers:
 - Executable score:
   price trend, 63/252-day drawdown, realized volatility, VIX level/spike, and
   credit ETF relative stress.
+- Executable retention context:
+  SOXL local volatility deleveraging may consume SOXX trend, moving-average
+  slope, dynamic realized-volatility threshold, VIX, HYG/IEF, and XLF/SPY as
+  backtestable hard-data evidence. This context only writes retention profiles
+  and does not promote watch-only evidence into route authority.
 - Watch-only:
   HY OAS, financial-stress indices, Pentagon pizza index, Fear & Greed,
   put/call, safe-haven demand, VIX/VIX3M term structure, VVIX, SKEW, MOVE, IG

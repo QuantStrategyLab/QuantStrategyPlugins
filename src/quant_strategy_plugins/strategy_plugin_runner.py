@@ -36,6 +36,7 @@ from .taco_rebound_shadow_plugin import (
     build_taco_rebound_shadow_signal,
     write_taco_rebound_shadow_outputs,
 )
+from .volatility_delever_price_rebound import build_volatility_delever_price_rebound_context
 
 DEFAULT_RUNNER_OUTPUT_DIR = "data/output/strategy_plugins"
 GENERAL_MARKET_REGIME_NOTIFICATION_TARGET = "market_regime_notification"
@@ -1597,6 +1598,10 @@ def _build_market_regime_control_payload(price_history: pd.DataFrame, plugin_con
         components,
         strategy_policy=str(plugin_config.get("strategy_policy", "levered_growth_income_v1")).strip(),
         taco_opportunity_size_scalar=float(plugin_config.get("taco_opportunity_size_scalar", 0.0) or 0.0),
+        volatility_delever_price_rebound_context=build_volatility_delever_price_rebound_context(
+            price_history,
+            plugin_config,
+        ),
         as_of=str(plugin_config.get("as_of", "") or "").strip() or None,
     )
 

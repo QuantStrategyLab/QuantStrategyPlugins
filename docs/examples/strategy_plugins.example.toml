@@ -74,6 +74,11 @@ taco_enabled = false
 panic_reversal_enabled = false
 crisis_enabled = true
 macro_enabled = true
+# Automation-approved deterministic SOXX price/volatility rebound context.
+# It only feeds volatility_delever_context retention profiles; TACO, panic
+# reversal, AI audit, OSINT, and localized copy remain manual-review/display
+# evidence and do not directly change SOXL allocation.
+volatility_delever_price_rebound_enabled = true
 
 [strategy_plugins.outputs]
 output_dir = "data/output/soxl_soxx_trend_income/plugins/market_regime_control"

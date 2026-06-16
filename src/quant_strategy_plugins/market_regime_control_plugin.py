@@ -171,12 +171,28 @@ def _build_volatility_delever_context(
     macro_watch: bool,
     taco_active: bool,
     panic_reversal_active: bool,
+    price_rebound_context: Mapping[str, Any] | None,
     reason_codes: Sequence[str],
 ) -> dict[str, Any]:
     hard_risk = bool(final_route == ROUTE_RISK_OFF or crisis_defense_required)
     soft_risk = bool(final_route == ROUTE_RISK_REDUCED or (macro_active and not hard_risk))
-    rebound_confirm = bool(taco_active or panic_reversal_active)
+    price_rebound_confirm = bool(
+        isinstance(price_rebound_context, Mapping)
+        and _as_bool(price_rebound_context.get("confirmed"), default=False)
+        and not hard_risk
+        and not soft_risk
+        and not blocked
+    )
+    opportunity_rebound_confirm = bool(taco_active or panic_reversal_active)
+    rebound_confirm = bool(opportunity_rebound_confirm or price_rebound_confirm)
     constructive = bool(not hard_risk and not soft_risk and not blocked)
+    rebound_sources: list[str] = []
+    if taco_active:
+        rebound_sources.append("taco")
+    if panic_reversal_active:
+        rebound_sources.append("panic_reversal")
+    if price_rebound_confirm:
+        rebound_sources.append("price_rebound")
     if hard_risk:
         tqqq_softzero_025 = _retention_profile(0.0, "hard_risk")
         tqqq_softzero_035 = _retention_profile(0.0, "hard_risk")
@@ -186,14 +202,19 @@ def _build_volatility_delever_context(
         tqqq_softzero_035 = _retention_profile(0.0, "soft_risk")
         soxl_rebound = _retention_profile(0.0, "soft_risk")
     elif rebound_confirm:
-        tqqq_softzero_025 = _retention_profile(0.50, "constructive", "rebound_confirm")
-        tqqq_softzero_035 = _retention_profile(0.50, "constructive", "rebound_confirm")
-        soxl_rebound = _retention_profile(0.50 if constructive else 0.25, "constructive", "rebound_confirm")
+        if opportunity_rebound_confirm:
+            tqqq_softzero_025 = _retention_profile(0.50, "constructive", "rebound_confirm")
+            tqqq_softzero_035 = _retention_profile(0.50, "constructive", "rebound_confirm")
+            soxl_rebound = _retention_profile(0.50 if constructive else 0.25, "constructive", "rebound_confirm")
+        else:
+            tqqq_softzero_025 = _retention_profile(0.25, "non_soft_risk")
+            tqqq_softzero_035 = _retention_profile(0.35, "non_soft_risk")
+            soxl_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
     else:
         tqqq_softzero_025 = _retention_profile(0.25, "non_soft_risk")
         tqqq_softzero_035 = _retention_profile(0.35, "non_soft_risk")
         soxl_rebound = _retention_profile(0.0, "rebound_not_confirmed")
-    return {
+    context = {
         "schema_version": "volatility_delever_context.v1",
         "source": "deterministic_market_regime_components",
         "actionable_for_position_control": bool(not blocked),
@@ -201,6 +222,7 @@ def _build_volatility_delever_context(
         "soft_risk": soft_risk,
         "constructive": constructive,
         "rebound_confirm": rebound_confirm,
+        "rebound_sources": tuple(rebound_sources),
         "macro_watch": bool(macro_watch),
         "reason_codes": tuple(dict.fromkeys(reason_codes)),
         "retention_profiles": {
@@ -209,6 +231,9 @@ def _build_volatility_delever_context(
             "soxl_step_rebound_0.25_0.50": soxl_rebound,
         },
     }
+    if isinstance(price_rebound_context, Mapping) and price_rebound_context:
+        context["price_rebound_context"] = dict(price_rebound_context)
+    return context
 
 
 def _blocked(payload: Mapping[str, Any] | None) -> bool:
@@ -278,6 +303,7 @@ def build_market_regime_control_signal(
     *,
     strategy_policy: str = "levered_growth_income_v1",
     taco_opportunity_size_scalar: float = 0.0,
+    volatility_delever_price_rebound_context: Mapping[str, Any] | None = None,
     as_of: str | None = None,
 ) -> dict[str, Any]:
     components = _normalize_component_signals(component_signals)
@@ -462,6 +488,7 @@ def build_market_regime_control_signal(
         macro_watch=macro_watch,
         taco_active=taco_active,
         panic_reversal_active=panic_reversal_active,
+        price_rebound_context=volatility_delever_price_rebound_context,
         reason_codes=reason_codes,
     )
     position_control = {

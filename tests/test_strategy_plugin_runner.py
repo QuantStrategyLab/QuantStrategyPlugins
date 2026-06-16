@@ -393,8 +393,17 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
         volatility_delever_context["retention_profiles"]["tqqq_step_softzero_0.25_0.50"]["retention_ratio"]
         == 0.0
     )
+    assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
+    assert (
+        volatility_delever_context["retention_profiles"]["soxl_step_softzero_rebound_0.25_0.50"][
+            "retention_ratio"
+        ]
+        == 0.0
+    )
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
     assert payload["execution_controls"]["position_control_allowed"] is True
+    assert payload["execution_controls"]["capital_impact"] == "strategy_opt_in"
+    assert payload["execution_controls"]["position_control_shadow_only"] is False
     assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_AUTOMATION_APPROVED
     assert payload["consumption_policy"]["position_control_allowed"] is True
     assert payload["execution_controls"]["broker_order_allowed"] is False
@@ -684,9 +693,47 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
     assert payload["strategy"] == SOXL_STRATEGY_NAME
     assert payload["execution_controls"]["position_control_allowed"] is True
+    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
+    assert payload["execution_controls"]["capital_impact"] == "strategy_opt_in"
+    assert payload["execution_controls"]["position_control_shadow_only"] is False
     volatility_delever_context = payload["position_control"]["volatility_delever_context"]
     assert volatility_delever_context["actionable_for_position_control"] is True
     assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
+
+
+def test_strategy_plugin_runner_marks_pending_strategy_mount_notification_only(tmp_path) -> None:
+    prices_path = tmp_path / "market_regime_prices.csv"
+    output_dir = tmp_path / "global_etf_rotation" / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
+    _quiet_prices().to_csv(prices_path, index=False)
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [
+            {
+                "strategy": "global_etf_rotation",
+                "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                "enabled": True,
+                "inputs": {"prices": str(prices_path), "benchmark_symbol": "QQQ", "attack_symbol": "TQQQ"},
+                "outputs": {"output_dir": str(output_dir)},
+            }
+        ],
+    }
+
+    summary = run_configured_plugins(config)
+
+    result = summary["strategy_plugins"][0]
+    assert result["strategy"] == "global_etf_rotation"
+    assert result["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
+    assert result["status"] == "ok"
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["strategy"] == "global_etf_rotation"
+    assert payload["execution_controls"]["notification_allowed"] is True
+    assert payload["execution_controls"]["position_control_allowed"] is False
+    assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
+    assert payload["execution_controls"]["capital_impact"] == "notification_only"
+    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
+    assert payload["execution_controls"]["position_control_shadow_only"] is True
+    assert payload["consumption_policy"]["position_control_allowed"] is False
 
 
 def test_strategy_plugin_runner_adds_soxl_price_rebound_retention_context(tmp_path) -> None:
@@ -735,6 +782,9 @@ def test_strategy_plugin_runner_adds_soxl_price_rebound_retention_context(tmp_pa
     soxl_profile = volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]
     assert soxl_profile["retention_ratio"] == 0.5
     assert soxl_profile["reason_codes"] == ["constructive", "price_rebound_confirm"]
+    softzero_profile = volatility_delever_context["retention_profiles"]["soxl_step_softzero_rebound_0.25_0.50"]
+    assert softzero_profile["retention_ratio"] == 0.5
+    assert softzero_profile["reason_codes"] == ["constructive", "price_rebound_confirm"]
 
 
 def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> None:
@@ -774,6 +824,15 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
     assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
         (PLUGIN_MARKET_REGIME_CONTROL, SOXL_STRATEGY_NAME)
     ].position_control_allowed is True
+    for pending_strategy in (
+        "global_etf_rotation",
+        "russell_1000_multi_factor_defensive",
+        "mega_cap_leader_rotation_top50_balanced",
+    ):
+        policy = PLUGIN_CONSUMPTION_POLICY_REGISTRY[(PLUGIN_MARKET_REGIME_CONTROL, pending_strategy)]
+        assert policy.notification_allowed is True
+        assert policy.position_control_allowed is False
+        assert policy.evidence_status == EVIDENCE_NOTIFICATION_ONLY
 
 
 def test_strategy_plugin_runner_rehearses_triggered_shadow_artifact_without_execution_permissions(tmp_path) -> None:
@@ -817,6 +876,10 @@ def test_strategy_plugin_runner_rehearses_triggered_shadow_artifact_without_exec
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
     assert payload["execution_controls"]["repository_broker_write_allowed"] is False
     assert payload["execution_controls"]["repository_allocation_mutation_allowed"] is False
+    assert payload["execution_controls"]["position_control_allowed"] is False
+    assert payload["execution_controls"]["capital_impact"] == "notification_only"
+    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
+    assert payload["execution_controls"]["position_control_shadow_only"] is True
 
 
 def test_strategy_plugin_runner_can_enable_ai_audit_without_api_key(tmp_path, monkeypatch) -> None:

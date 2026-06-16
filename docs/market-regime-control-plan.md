@@ -114,13 +114,24 @@ Recommended policy:
   `position_control.volatility_delever_context` retention profiles when its
   local volatility gate triggers. TACO, panic reversal, AI audit, OSINT, and
   localized notification copy remain manual-review context only.
+  The live default remains the aggressive
+  `soxl_step_rebound_0.25_0.50` profile: retain 50% on constructive confirmed
+  price rebound, retain 25% on a soft-risk price-rebound candidate, and retain
+  0% under hard risk or without deterministic price rebound. The plugin also
+  emits `soxl_step_softzero_rebound_0.25_0.50` as a conservative switch that
+  clears retention under soft risk.
 - Global ETF, Russell 1000, and Mega Cap rotation
   strategies
-  Support the unified plugin by default. `risk_reduced` should apply a 50% risk
-  budget scale; `risk_off` should zero the risk-asset budget.
+  May generate the unified plugin artifact for notification and evidence
+  archiving, but their strategy-level `position_control_allowed` flag stays
+  false until a dedicated 25-30 year validation package is archived. The
+  candidate rule for that later promotion remains: `risk_reduced` applies a 50%
+  risk-budget scale and `risk_off` zeros the risk-asset budget.
 - DCA or low-frequency income strategies
-  Default to notification-only and may allow explicit operator opt-in for
-  position impact.
+  Default to notification-only. They should not sell or de-risk existing
+  holdings from this plugin; any future automation should be a separate
+  cash-deployment control for new buys, such as pause, halve, or catch-up,
+  after its own validation.
 
 Legacy plugins remain available for historical backtests and compatibility
 outputs. New integrations should prefer `market_regime_control`.
@@ -145,6 +156,21 @@ the human notification body:
 - Automated position impact happens only when the strategy side explicitly
   consumes `position_control`, and only when `position_control_allowed = true`
   and `evidence_status = automation_approved`.
+- New or expanded automated position consumers should clear a 25-30 year
+  long-history validation gate before promotion. For TQQQ/SOXL-style products
+  without enough live ETF history, the long replay must explicitly use a
+  synthetic daily-reset 3x proxy built from the underlying QQQ/SOXX series and
+  archive synthetic and real-ETF evidence separately.
+- The current automation-approved strategy consumers are TQQQ growth/income
+  and SOXL/SOXX trend/income. Global ETF, Russell 1000, and Mega Cap rotation
+  remain notification/evidence artifacts for this plugin until their own
+  long-history promotion packages are archived. Their runner artifacts carry
+  `position_control_allowed = false`,
+  `strategy_runtime_metadata_allowed = false`, and
+  `capital_impact = notification_only`.
+- The same automation evidence can support aggressive and conservative
+  strategy-side consumption preferences. The plugin only emits deterministic
+  fields and evidence; the strategy config chooses which preference to apply.
 - `notification_only`, TACO, panic reversal, AI audit, and general notification
   targets are for manual review only.
 - Dedicated plugin-alert bots should publish only manual-review or
@@ -169,6 +195,11 @@ strategy's dynamic deleveraging threshold, and VIX, HYG/IEF, and XLF/SPY filters
 must avoid hard or soft stress. This context only feeds
 `position_control.volatility_delever_context.retention_profiles`; it does not
 change the `risk_off`, `risk_reduced`, or `watch` route.
+
+TACO and panic reversal may appear in
+`position_control.volatility_delever_context.rebound_sources` for display and
+manual-review context, but they do not raise automatic SOXL retention profiles.
+Automatic SOXL retention requires `price_rebound_context` hard-data evidence.
 
 ## Indicator Tiers
 
@@ -305,8 +336,9 @@ Design implications:
   volatility-delever retention context, but does not apply `risk_reduced`
   position impact by default.
 - Rotation strategies:
-  enable 50% risk scaling for `risk_reduced` and zero risk-asset budget for
-  `risk_off`.
+  remain notification-only until their 25-30 year validation packages are
+  archived. The later promotion candidate is 50% risk scaling for
+  `risk_reduced` and zero risk-asset budget for `risk_off`.
 - TACO / panic reversal:
   notification-only by default; they can surface opportunity context only when
   no crisis or macro de-risking route is active. Panic reversal remains disabled

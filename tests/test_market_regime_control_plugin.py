@@ -35,6 +35,12 @@ def test_market_regime_control_crisis_blocks_taco_opportunity() -> None:
     volatility_delever_context = payload["position_control"]["volatility_delever_context"]
     assert volatility_delever_context["hard_risk"] is True
     assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
+    assert (
+        volatility_delever_context["retention_profiles"]["soxl_step_softzero_rebound_0.25_0.50"][
+            "retention_ratio"
+        ]
+        == 0.0
+    )
     assert "crisis_blocks_taco" in payload["arbiter"]["vetoes"]
 
 
@@ -72,6 +78,13 @@ def test_market_regime_control_macro_delever_blocks_taco_veto() -> None:
         volatility_delever_context["retention_profiles"]["tqqq_step_softzero_0.35_0.50"]["retention_ratio"]
         == 0.0
     )
+    assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
+    assert (
+        volatility_delever_context["retention_profiles"]["soxl_step_softzero_rebound_0.25_0.50"][
+            "retention_ratio"
+        ]
+        == 0.0
+    )
     assert "macro_delever_blocks_taco" in payload["arbiter"]["vetoes"]
     assert "macro:vix_crisis_level" in payload["position_control"]["reason_codes"]
 
@@ -104,9 +117,15 @@ def test_market_regime_control_taco_is_notification_with_local_veto_only() -> No
     assert volatility_delever_context["rebound_confirm"] is True
     assert (
         volatility_delever_context["retention_profiles"]["tqqq_step_softzero_0.25_0.50"]["retention_ratio"]
-        == 0.5
+        == 0.25
     )
-    assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.5
+    assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
+    assert (
+        volatility_delever_context["retention_profiles"]["soxl_step_softzero_rebound_0.25_0.50"][
+            "retention_ratio"
+        ]
+        == 0.0
+    )
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
 
@@ -134,6 +153,44 @@ def test_market_regime_control_price_rebound_only_updates_volatility_retention_p
     soxl_profile = volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]
     assert soxl_profile["retention_ratio"] == 0.5
     assert soxl_profile["reason_codes"] == ["constructive", "price_rebound_confirm"]
+    softzero_profile = volatility_delever_context["retention_profiles"]["soxl_step_softzero_rebound_0.25_0.50"]
+    assert softzero_profile["retention_ratio"] == 0.5
+    assert softzero_profile["reason_codes"] == ["constructive", "price_rebound_confirm"]
+
+
+def test_market_regime_control_soxl_aggressive_profile_retains_soft_price_rebound_candidate() -> None:
+    payload = build_market_regime_control_signal(
+        {
+            "macro": {
+                "profile": "macro_risk_governor",
+                "as_of": "2026-06-16",
+                "canonical_route": "delever",
+                "suggested_action": "delever",
+                "leverage_scalar": 0.0,
+                "risk_asset_scalar": 1.0,
+            },
+        },
+        volatility_delever_price_rebound_context={
+            "schema_version": "volatility_delever_price_rebound_context.v1",
+            "confirmed": False,
+            "volatility_triggered": True,
+            "trend_ok": True,
+            "rebound_nd": True,
+            "hard_filter": False,
+            "soft_filter": True,
+            "reason_codes": ["soft_filter"],
+        },
+    )
+
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["soft_risk"] is True
+    assert volatility_delever_context["price_rebound_candidate"] is True
+    soxl_profile = volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]
+    assert soxl_profile["retention_ratio"] == 0.25
+    assert soxl_profile["reason_codes"] == ["price_rebound_candidate", "soft_risk"]
+    softzero_profile = volatility_delever_context["retention_profiles"]["soxl_step_softzero_rebound_0.25_0.50"]
+    assert softzero_profile["retention_ratio"] == 0.0
+    assert softzero_profile["reason_codes"] == ["soft_risk"]
 
 
 def test_market_regime_control_panic_reversal_is_opportunity_watch_only() -> None:

@@ -32,6 +32,9 @@ def test_market_regime_control_crisis_blocks_taco_opportunity() -> None:
     assert payload["position_control"]["risk_asset_scalar"] == 0.0
     assert payload["position_control"]["taco_allowed"] is False
     assert payload["position_control"]["crisis_defense_required"] is True
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["hard_risk"] is True
+    assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
     assert "crisis_blocks_taco" in payload["arbiter"]["vetoes"]
 
 
@@ -63,6 +66,12 @@ def test_market_regime_control_macro_delever_blocks_taco_veto() -> None:
     assert payload["position_control"]["leverage_scalar"] == 0.0
     assert payload["position_control"]["risk_asset_scalar"] == 1.0
     assert payload["position_control"]["taco_allowed"] is False
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["soft_risk"] is True
+    assert (
+        volatility_delever_context["retention_profiles"]["tqqq_step_softzero_0.35_0.50"]["retention_ratio"]
+        == 0.0
+    )
     assert "macro_delever_blocks_taco" in payload["arbiter"]["vetoes"]
     assert "macro:vix_crisis_level" in payload["position_control"]["reason_codes"]
 
@@ -90,6 +99,14 @@ def test_market_regime_control_taco_is_notification_with_local_veto_only() -> No
     assert payload["position_control"]["local_delever_veto_allowed"] is True
     assert payload["position_control"]["taco_size_scalar"] == 0.25
     assert payload["position_control"]["panic_reversal_allowed"] is False
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["constructive"] is True
+    assert volatility_delever_context["rebound_confirm"] is True
+    assert (
+        volatility_delever_context["retention_profiles"]["tqqq_step_softzero_0.25_0.50"]["retention_ratio"]
+        == 0.5
+    )
+    assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.5
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
 

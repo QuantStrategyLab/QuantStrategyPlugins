@@ -353,6 +353,13 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["position_control"]["leverage_scalar"] == 0.0
     assert payload["position_control"]["risk_asset_scalar"] == 0.0
     assert payload["position_control"]["taco_allowed"] is False
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["schema_version"] == "volatility_delever_context.v1"
+    assert volatility_delever_context["soft_risk"] is True
+    assert (
+        volatility_delever_context["retention_profiles"]["tqqq_step_softzero_0.25_0.50"]["retention_ratio"]
+        == 0.0
+    )
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
     assert payload["execution_controls"]["position_control_allowed"] is True
     assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_AUTOMATION_APPROVED
@@ -579,8 +586,9 @@ def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path
     assert payload["log_record"]["localized_messages"]["zh-CN"]
 
 
-def test_strategy_plugin_runner_rejects_soxl_market_regime_control_mount(tmp_path) -> None:
+def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_path) -> None:
     prices_path = tmp_path / "market_regime_prices.csv"
+    output_dir = tmp_path / SOXL_STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL
     _soxl_quiet_prices().to_csv(prices_path, index=False)
     config = {
         "output_dir": str(tmp_path / "runner"),
@@ -591,17 +599,29 @@ def test_strategy_plugin_runner_rejects_soxl_market_regime_control_mount(tmp_pat
                 "plugin": PLUGIN_MARKET_REGIME_CONTROL,
                 "enabled": True,
                 "inputs": {"prices": str(prices_path), "benchmark_symbol": "SOXX", "attack_symbol": "SOXL"},
+                "outputs": {"output_dir": str(output_dir)},
             }
         ],
     }
 
-    with pytest.raises(ValueError, match="strategy-limited"):
-        run_configured_plugins(config)
+    summary = run_configured_plugins(config)
+
+    result = summary["strategy_plugins"][0]
+    assert result["strategy"] == SOXL_STRATEGY_NAME
+    assert result["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
+    assert result["status"] == "ok"
+    payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
+    assert payload["strategy"] == SOXL_STRATEGY_NAME
+    assert payload["execution_controls"]["position_control_allowed"] is True
+    volatility_delever_context = payload["position_control"]["volatility_delever_context"]
+    assert volatility_delever_context["actionable_for_position_control"] is True
+    assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
 
 
 def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> None:
     assert set(PLUGIN_COMPATIBLE_STRATEGIES[PLUGIN_MARKET_REGIME_CONTROL]) == {
         STRATEGY_NAME,
+        SOXL_STRATEGY_NAME,
         "global_etf_rotation",
         "russell_1000_multi_factor_defensive",
         "mega_cap_leader_rotation_top50_balanced",
@@ -621,7 +641,7 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
     assert (
         PLUGIN_MARKET_REGIME_CONTROL,
         SOXL_STRATEGY_NAME,
-    ) not in PLUGIN_CONSUMPTION_POLICY_REGISTRY
+    ) in PLUGIN_CONSUMPTION_POLICY_REGISTRY
     assert (
         PLUGIN_PANIC_REVERSAL_SHADOW,
         SOXL_STRATEGY_NAME,
@@ -631,6 +651,9 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
     ].position_control_allowed is False
     assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
         (PLUGIN_MARKET_REGIME_CONTROL, STRATEGY_NAME)
+    ].position_control_allowed is True
+    assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
+        (PLUGIN_MARKET_REGIME_CONTROL, SOXL_STRATEGY_NAME)
     ].position_control_allowed is True
 
 

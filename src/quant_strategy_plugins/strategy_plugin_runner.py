@@ -121,28 +121,28 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
         strategy="global_etf_rotation",
         notification_allowed=True,
-        position_control_allowed=True,
-        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
-        description="Local risk-scaling consumer for broad ETF rotation.",
+        description="Pending 25-30 year market-regime-control validation for broad ETF rotation.",
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
         strategy="russell_1000_multi_factor_defensive",
         notification_allowed=True,
-        position_control_allowed=True,
-        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
-        description="Local risk-scaling consumer for the Russell 1000 defensive sleeve.",
+        description="Pending 25-30 year market-regime-control validation for the Russell 1000 defensive sleeve.",
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
         strategy="mega_cap_leader_rotation_top50_balanced",
         notification_allowed=True,
-        position_control_allowed=True,
-        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
-        description="Local risk-scaling consumer for the mega-cap leader rotation profile.",
+        description="Pending 25-30 year market-regime-control validation for the mega-cap leader rotation profile.",
     ),
     PluginConsumptionPolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
@@ -1504,6 +1504,14 @@ def _apply_plugin_contract(
         execution_controls["notification_allowed"] = bool(consumption_policy.notification_allowed)
         execution_controls["position_control_allowed"] = bool(consumption_policy.position_control_allowed)
         execution_controls["consumption_evidence_status"] = consumption_policy.evidence_status
+        if consumption_policy.position_control_allowed:
+            execution_controls["capital_impact"] = "strategy_opt_in"
+            execution_controls["strategy_runtime_metadata_allowed"] = True
+            execution_controls["position_control_shadow_only"] = False
+        else:
+            execution_controls["capital_impact"] = "notification_only"
+            execution_controls["strategy_runtime_metadata_allowed"] = False
+            execution_controls["position_control_shadow_only"] = True
     if notification_target_policy is not None:
         execution_controls["notification_allowed"] = bool(notification_target_policy.notification_allowed)
         execution_controls["position_control_allowed"] = False

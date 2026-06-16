@@ -77,7 +77,9 @@ macro_enabled = true
 # Automation-approved deterministic SOXX price/volatility rebound context.
 # It only feeds volatility_delever_context retention profiles; TACO, panic
 # reversal, AI audit, OSINT, and localized copy remain manual-review/display
-# evidence and do not directly change SOXL allocation.
+# evidence and do not directly change SOXL allocation. The SOXL strategy default
+# consumes the aggressive soxl_step_rebound_0.25_0.50 profile; the plugin also
+# emits soxl_step_softzero_rebound_0.25_0.50 for conservative strategy configs.
 volatility_delever_price_rebound_enabled = true
 
 [strategy_plugins.outputs]

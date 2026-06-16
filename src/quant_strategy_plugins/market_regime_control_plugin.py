@@ -162,6 +162,21 @@ def _retention_profile(retention_ratio: float, *reason_codes: str) -> dict[str, 
     }
 
 
+def _price_rebound_candidate(price_rebound_context: Mapping[str, Any] | None) -> bool:
+    if not isinstance(price_rebound_context, Mapping):
+        return False
+    return bool(
+        _as_bool(price_rebound_context.get("volatility_triggered"), default=False)
+        and _as_bool(price_rebound_context.get("trend_ok"), default=False)
+        and (
+            _as_bool(price_rebound_context.get("rebound_1d"), default=False)
+            or _as_bool(price_rebound_context.get("rebound_nd"), default=False)
+            or _as_bool(price_rebound_context.get("confirmed"), default=False)
+        )
+        and not _as_bool(price_rebound_context.get("hard_filter"), default=False)
+    )
+
+
 def _build_volatility_delever_context(
     *,
     final_route: str,
@@ -180,7 +195,11 @@ def _build_volatility_delever_context(
         isinstance(price_rebound_context, Mapping)
         and _as_bool(price_rebound_context.get("confirmed"), default=False)
         and not hard_risk
-        and not soft_risk
+        and not blocked
+    )
+    price_rebound_candidate = bool(
+        _price_rebound_candidate(price_rebound_context)
+        and not hard_risk
         and not blocked
     )
     opportunity_rebound_confirm = bool(taco_active or panic_reversal_active)
@@ -197,23 +216,28 @@ def _build_volatility_delever_context(
         tqqq_softzero_025 = _retention_profile(0.0, "hard_risk")
         tqqq_softzero_035 = _retention_profile(0.0, "hard_risk")
         soxl_rebound = _retention_profile(0.0, "hard_risk")
+        soxl_softzero_rebound = _retention_profile(0.0, "hard_risk")
     elif soft_risk:
         tqqq_softzero_025 = _retention_profile(0.0, "soft_risk")
         tqqq_softzero_035 = _retention_profile(0.0, "soft_risk")
-        soxl_rebound = _retention_profile(0.0, "soft_risk")
-    elif rebound_confirm:
-        if opportunity_rebound_confirm:
-            tqqq_softzero_025 = _retention_profile(0.50, "constructive", "rebound_confirm")
-            tqqq_softzero_035 = _retention_profile(0.50, "constructive", "rebound_confirm")
-            soxl_rebound = _retention_profile(0.50 if constructive else 0.25, "constructive", "rebound_confirm")
-        else:
-            tqqq_softzero_025 = _retention_profile(0.25, "non_soft_risk")
-            tqqq_softzero_035 = _retention_profile(0.35, "non_soft_risk")
-            soxl_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
+        soxl_rebound = (
+            _retention_profile(0.25, "price_rebound_candidate", "soft_risk")
+            if price_rebound_candidate
+            else _retention_profile(0.0, "soft_risk")
+        )
+        soxl_softzero_rebound = _retention_profile(0.0, "soft_risk")
     else:
         tqqq_softzero_025 = _retention_profile(0.25, "non_soft_risk")
         tqqq_softzero_035 = _retention_profile(0.35, "non_soft_risk")
-        soxl_rebound = _retention_profile(0.0, "rebound_not_confirmed")
+        if price_rebound_confirm:
+            soxl_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
+            soxl_softzero_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
+        elif price_rebound_candidate:
+            soxl_rebound = _retention_profile(0.25, "price_rebound_candidate")
+            soxl_softzero_rebound = _retention_profile(0.25, "price_rebound_candidate")
+        else:
+            soxl_rebound = _retention_profile(0.0, "rebound_not_confirmed")
+            soxl_softzero_rebound = _retention_profile(0.0, "rebound_not_confirmed")
     context = {
         "schema_version": "volatility_delever_context.v1",
         "source": "deterministic_market_regime_components",
@@ -222,6 +246,7 @@ def _build_volatility_delever_context(
         "soft_risk": soft_risk,
         "constructive": constructive,
         "rebound_confirm": rebound_confirm,
+        "price_rebound_candidate": price_rebound_candidate,
         "rebound_sources": tuple(rebound_sources),
         "macro_watch": bool(macro_watch),
         "reason_codes": tuple(dict.fromkeys(reason_codes)),
@@ -229,6 +254,7 @@ def _build_volatility_delever_context(
             "tqqq_step_softzero_0.25_0.50": tqqq_softzero_025,
             "tqqq_step_softzero_0.35_0.50": tqqq_softzero_035,
             "soxl_step_rebound_0.25_0.50": soxl_rebound,
+            "soxl_step_softzero_rebound_0.25_0.50": soxl_softzero_rebound,
         },
     }
     if isinstance(price_rebound_context, Mapping) and price_rebound_context:

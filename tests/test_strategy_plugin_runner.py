@@ -422,6 +422,29 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert "macro:vix_crisis_level" not in zh_log
 
 
+def test_strategy_plugin_runner_localizes_watch_route_reason_fallback() -> None:
+    payload = _apply_plugin_contract(
+        {
+            "as_of": "2026-06-16",
+            "canonical_route": "watch",
+            "suggested_action": "watch_only",
+            "notification": {"should_notify": True},
+        },
+        strategy=SOXL_STRATEGY_NAME,
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        mode="shadow",
+    )
+
+    assert payload["notification"]["localized_reason_labels"]["zh-CN"] == ["观察状态"]
+    assert payload["notification"]["localized_reason_labels"]["en-US"] == ["Watch state"]
+    zh_notification = payload["notification"]["localized_messages"]["zh-CN"]
+    zh_log = payload["log_record"]["localized_messages"]["zh-CN"]
+    assert "原因：观察状态" in zh_notification
+    assert "原因=观察状态" in zh_log
+    assert "watch" not in zh_notification
+    assert "watch" not in zh_log
+
+
 def test_strategy_plugin_runner_can_enable_panic_reversal_inside_market_regime_control(tmp_path) -> None:
     prices_path = tmp_path / "market_regime_panic_prices.csv"
     output_dir = tmp_path / STRATEGY_NAME / "plugins" / PLUGIN_MARKET_REGIME_CONTROL

@@ -147,6 +147,10 @@ the human notification body:
   and `evidence_status = automation_approved`.
 - `notification_only`, TACO, panic reversal, AI audit, and general notification
   targets are for manual review only.
+- Dedicated plugin-alert bots should publish only manual-review or
+  notification-only plugin signals. If a strategy consumes an
+  automation-approved `defend` or `delever` route, the strategy run that applies
+  the position impact should carry the user-facing notification.
 - Human notification copy should contain only the situation and suggested
   action; it should not display internal governance fields such as
   `position_control_allowed`, `execution_controls`, route codes, or veto codes.

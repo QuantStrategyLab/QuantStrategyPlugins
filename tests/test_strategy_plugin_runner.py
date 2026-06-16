@@ -660,6 +660,7 @@ def test_strategy_plugin_runner_runs_general_market_regime_notification(tmp_path
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
     assert payload["execution_controls"]["position_control_allowed"] is False
     assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
+    assert "manual_review_notification_delegated" not in payload["execution_controls"]
     assert payload["notification_target_policy"]["notification_target"] == GENERAL_MARKET_REGIME_NOTIFICATION_TARGET
     assert payload["notification"]["localized_messages"]["en-US"].startswith("No notification required")
     assert "notification target" in payload["notification"]["localized_messages"]["en-US"]
@@ -696,6 +697,15 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
     assert payload["execution_controls"]["capital_impact"] == "strategy_opt_in"
     assert payload["execution_controls"]["position_control_shadow_only"] is False
+    assert payload["execution_controls"]["manual_review_notification_delegated"] is True
+    assert (
+        payload["execution_controls"]["manual_review_notification_target"]
+        == GENERAL_MARKET_REGIME_NOTIFICATION_TARGET
+    )
+    assert (
+        payload["execution_controls"]["manual_review_notification_delegate"]
+        == f"notification_target:{GENERAL_MARKET_REGIME_NOTIFICATION_TARGET}"
+    )
     volatility_delever_context = payload["position_control"]["volatility_delever_context"]
     assert volatility_delever_context["actionable_for_position_control"] is True
     assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0

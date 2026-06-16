@@ -103,6 +103,10 @@
 - `notification_only`、TACO、panic reversal、AI audit 和通用通知只用于人工查看。
 - 专用插件告警 bot 只发布人工复核或 notification-only 插件信号。如果策略消费了已通过自动化证据批准的
   `defend` 或 `delever` 路线，并实际产生仓位影响，面向用户的通知应由该策略运行结果承载。
+- `market_regime_control` 的 strategy artifact 会写入
+  `execution_controls.manual_review_notification_delegated = true` 和
+  `manual_review_notification_target = market_regime_notification`。因此多个策略同时挂载同一插件时，
+  人工复核插件 bot 只消费统一 notification target artifact，避免 TQQQ/SOXL 等策略重复推送同一类市场状态提醒。
 - 人工通知正文只写“情况说明”和“建议操作”，不展示 `position_control_allowed`、
   `execution_controls`、route code 或 veto code 等内部治理字段。
 

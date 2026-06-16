@@ -180,6 +180,12 @@ the human notification body:
 - Human notification copy should contain only the situation and suggested
   action; it should not display internal governance fields such as
   `position_control_allowed`, `execution_controls`, route codes, or veto codes.
+- `market_regime_control` strategy artifacts set
+  `execution_controls.manual_review_notification_delegated = true` and
+  `manual_review_notification_target = market_regime_notification`. When
+  multiple strategies mount the same plugin, the manual-review plugin bot should
+  consume the single notification-target artifact instead of emitting one alert
+  per strategy artifact.
 
 SOXL/SOXX is now in the strategy-level `market_regime_control` consumption
 registry for automation-approved deterministic fields. It also keeps the

@@ -217,6 +217,8 @@ def _build_volatility_delever_context(
         tqqq_softzero_035 = _retention_profile(0.0, "hard_risk")
         soxl_rebound = _retention_profile(0.0, "hard_risk")
         soxl_softzero_rebound = _retention_profile(0.0, "hard_risk")
+        tecl_rebound = _retention_profile(0.0, "hard_risk")
+        tecl_softzero_rebound = _retention_profile(0.0, "hard_risk")
     elif soft_risk:
         tqqq_softzero_025 = _retention_profile(0.0, "soft_risk")
         tqqq_softzero_035 = _retention_profile(0.0, "soft_risk")
@@ -226,18 +228,30 @@ def _build_volatility_delever_context(
             else _retention_profile(0.0, "soft_risk")
         )
         soxl_softzero_rebound = _retention_profile(0.0, "soft_risk")
+        tecl_rebound = (
+            _retention_profile(0.25, "price_rebound_candidate", "soft_risk")
+            if price_rebound_candidate
+            else _retention_profile(0.0, "soft_risk")
+        )
+        tecl_softzero_rebound = _retention_profile(0.0, "soft_risk")
     else:
         tqqq_softzero_025 = _retention_profile(0.25, "non_soft_risk")
         tqqq_softzero_035 = _retention_profile(0.35, "non_soft_risk")
         if price_rebound_confirm:
             soxl_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
             soxl_softzero_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
+            tecl_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
+            tecl_softzero_rebound = _retention_profile(0.50, "constructive", "price_rebound_confirm")
         elif price_rebound_candidate:
             soxl_rebound = _retention_profile(0.25, "price_rebound_candidate")
             soxl_softzero_rebound = _retention_profile(0.25, "price_rebound_candidate")
+            tecl_rebound = _retention_profile(0.25, "price_rebound_candidate")
+            tecl_softzero_rebound = _retention_profile(0.25, "price_rebound_candidate")
         else:
             soxl_rebound = _retention_profile(0.0, "rebound_not_confirmed")
             soxl_softzero_rebound = _retention_profile(0.0, "rebound_not_confirmed")
+            tecl_rebound = _retention_profile(0.0, "rebound_not_confirmed")
+            tecl_softzero_rebound = _retention_profile(0.0, "rebound_not_confirmed")
     context = {
         "schema_version": "volatility_delever_context.v1",
         "source": "deterministic_market_regime_components",
@@ -255,6 +269,8 @@ def _build_volatility_delever_context(
             "tqqq_step_softzero_0.35_0.50": tqqq_softzero_035,
             "soxl_step_rebound_0.25_0.50": soxl_rebound,
             "soxl_step_softzero_rebound_0.25_0.50": soxl_softzero_rebound,
+            "tecl_step_rebound_0.25_0.50": tecl_rebound,
+            "tecl_step_softzero_rebound_0.25_0.50": tecl_softzero_rebound,
         },
     }
     if isinstance(price_rebound_context, Mapping) and price_rebound_context:

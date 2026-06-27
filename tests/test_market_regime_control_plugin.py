@@ -276,3 +276,18 @@ def test_market_regime_control_blocked_component_blocks_taco_opportunity() -> No
     assert payload["suggested_action"] == "blocked"
     assert payload["position_control"]["taco_allowed"] is False
     assert "macro:blocked" in payload["position_control"]["reason_codes"]
+
+
+def test_market_regime_control_exposes_tecl_retention_profiles() -> None:
+    payload = build_market_regime_control_signal(
+        {},
+        volatility_delever_price_rebound_context={
+            "schema_version": "volatility_delever_price_rebound_context.v1",
+            "confirmed": True,
+            "reason_codes": ["price_rebound_confirm"],
+        },
+    )
+
+    profiles = payload["position_control"]["volatility_delever_context"]["retention_profiles"]
+    assert profiles["tecl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.50
+    assert profiles["tecl_step_softzero_rebound_0.25_0.50"]["retention_ratio"] == 0.50

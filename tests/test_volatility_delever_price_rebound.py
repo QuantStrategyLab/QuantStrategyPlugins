@@ -47,6 +47,26 @@ def test_price_rebound_context_defaults_disabled_for_non_soxl_strategy() -> None
     assert context == {}
 
 
+def test_price_rebound_context_defaults_enabled_for_tecl_strategy() -> None:
+    prices = _soxl_rebound_prices()
+    prices = prices.assign(
+        symbol=prices["symbol"].map(lambda value: {"SOXX": "XLK", "SOXL": "TECL"}.get(value, value))
+    )
+    context = build_volatility_delever_price_rebound_context(
+        prices,
+        {
+            "strategy": "tecl_xlk_trend_income",
+            "as_of": pd.Timestamp(prices["as_of"].max()).date().isoformat(),
+            "vix_symbols": ["VIX"],
+            "credit_pairs": ["HYG:IEF"],
+            "financial_symbols": ["XLF"],
+        },
+    )
+
+    assert context.get("enabled") is True
+    assert context.get("benchmark_symbol") == "XLK"
+
+
 def test_price_rebound_context_confirms_soxl_constructive_rebound() -> None:
     prices = _soxl_rebound_prices()
     context = build_volatility_delever_price_rebound_context(

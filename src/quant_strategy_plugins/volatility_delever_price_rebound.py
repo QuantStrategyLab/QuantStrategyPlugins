@@ -125,7 +125,7 @@ def build_volatility_delever_price_rebound_context(
     price_history: pd.DataFrame,
     plugin_config: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build deterministic SOXL volatility-delever rebound context.
+    """Build deterministic levered volatility-delever rebound context.
 
     The context is intentionally limited to backtestable hard data. It feeds
     retention profiles only; market-regime route authority stays with the
@@ -133,13 +133,15 @@ def build_volatility_delever_price_rebound_context(
     """
 
     strategy = str(plugin_config.get("strategy") or "").strip().lower()
-    default_enabled = strategy == "soxl_soxx_trend_income"
+    default_enabled = strategy in {"soxl_soxx_trend_income", "tecl_xlk_trend_income"}
     if not _as_bool(plugin_config.get("volatility_delever_price_rebound_enabled"), default=default_enabled):
         return {}
 
     close = normalize_close(price_history)
     as_of = str(plugin_config.get("as_of", "") or "").strip() or None
-    benchmark_symbol = str(plugin_config.get("benchmark_symbol", "SOXX") or "SOXX").strip().upper()
+    benchmark_symbol = str(plugin_config.get("benchmark_symbol") or "").strip().upper()
+    if not benchmark_symbol:
+        benchmark_symbol = "XLK" if strategy == "tecl_xlk_trend_income" else "SOXX"
     if benchmark_symbol not in close.columns:
         _, signal_date = resolve_signal_date(close, as_of)
         return {

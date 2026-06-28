@@ -310,8 +310,8 @@ def build_macro_risk_governor_signal(
     watch_score_threshold: float = 3.0,
     delever_score_threshold: float = 5.0,
     crisis_score_threshold: float = 7.0,
-    delever_leverage_scalar: float = 0.0,
-    delever_risk_asset_scalar: float = 0.0,
+    delever_leverage_scalar: float = 0.50,
+    delever_risk_asset_scalar: float = 0.50,
     crisis_leverage_scalar: float = 0.0,
     crisis_risk_asset_scalar: float = 0.0,
     external_stress_actionable: bool = False,
@@ -1000,8 +1000,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--watch-score-threshold", type=float, default=3.0)
     parser.add_argument("--delever-score-threshold", type=float, default=5.0)
     parser.add_argument("--crisis-score-threshold", type=float, default=7.0)
-    parser.add_argument("--delever-leverage-scalar", type=float, default=0.0)
-    parser.add_argument("--delever-risk-asset-scalar", type=float, default=0.0)
+    parser.add_argument("--delever-leverage-scalar", type=float, default=0.50)
+    parser.add_argument("--delever-risk-asset-scalar", type=float, default=0.50)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     return parser
 

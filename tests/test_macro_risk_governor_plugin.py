@@ -73,8 +73,8 @@ def test_macro_risk_governor_routes_stress_to_delever_when_below_crisis_threshol
     assert payload["canonical_route"] == ROUTE_DELEVER
     assert payload["suggested_action"] == "delever"
     assert payload["would_trade_if_enabled"] is True
-    assert payload["leverage_scalar"] == 0.0
-    assert payload["risk_asset_scalar"] == 0.0
+    assert payload["leverage_scalar"] == 0.50
+    assert payload["risk_asset_scalar"] == 0.50
     assert "vix_crisis_level" in payload["reason_codes"]
     assert payload["checks"]["pentagon_pizza_watch"]["actionable"] is False
 

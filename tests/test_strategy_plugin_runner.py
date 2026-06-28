@@ -383,8 +383,8 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
     assert payload["strategy"] == STRATEGY_NAME
     assert payload["plugin"] == PLUGIN_MARKET_REGIME_CONTROL
     assert payload["canonical_route"] == "risk_reduced"
-    assert payload["position_control"]["leverage_scalar"] == 0.0
-    assert payload["position_control"]["risk_asset_scalar"] == 0.0
+    assert payload["position_control"]["leverage_scalar"] == 0.50
+    assert payload["position_control"]["risk_asset_scalar"] == 0.50
     assert payload["position_control"]["taco_allowed"] is False
     volatility_delever_context = payload["position_control"]["volatility_delever_context"]
     assert volatility_delever_context["schema_version"] == "volatility_delever_context.v1"

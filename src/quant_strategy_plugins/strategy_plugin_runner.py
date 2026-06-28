@@ -550,6 +550,9 @@ def _build_crisis_response_kwargs(plugin_config: Mapping[str, Any]) -> dict[str,
         "ai_audit_anthropic_base_url",
         "ai_audit_anthropic_model",
         "ai_audit_anthropic_version",
+        "ai_audit_api_key",
+        "ai_audit_fallback_api_key",
+        "ai_audit_anthropic_api_key",
     }
     numeric_keys = {
         "synthetic_attack_multiple",
@@ -617,6 +620,9 @@ def _build_taco_rebound_kwargs(plugin_config: Mapping[str, Any]) -> dict[str, An
         "ai_audit_anthropic_base_url",
         "ai_audit_anthropic_model",
         "ai_audit_anthropic_version",
+        "ai_audit_api_key",
+        "ai_audit_fallback_api_key",
+        "ai_audit_anthropic_api_key",
     }
     numeric_keys = {
         "crisis_guard_drawdown",

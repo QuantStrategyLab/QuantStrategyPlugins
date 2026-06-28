@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 PROVIDER_CODEX = "codex"
 PROVIDER_OPENAI = "openai"
@@ -23,6 +28,17 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_AI_AUDIT_TIMEOUT_SECONDS = 15.0
 AI_AUDIT_SCHEMA_VERSION = "strategy_plugin_ai_audit.v1"
+DEFAULT_MAX_RETRIES = 2
+DEFAULT_BACKOFF_BASE_SECONDS = 1.0
+SANITIZE_MAX_FIELD_LENGTH = 2000
+
+# Patterns that may appear in upstream error responses and must be scrubbed.
+_API_KEY_SCRUB_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"sk-[a-zA-Z0-9]{32,}", re.IGNORECASE),
+    re.compile(r"sk-ant-[a-zA-Z0-9_\-]{32,}", re.IGNORECASE),
+    re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.=]{20,}", re.IGNORECASE),
+    re.compile(r"x-api-key:\s*[^\s,;]{20,}", re.IGNORECASE),
+]
 
 
 @dataclass(frozen=True)
@@ -101,6 +117,53 @@ def _env_bool(*names: str, default: bool = False) -> bool:
     if value is None:
         return bool(default)
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _sanitize_user_input(value: Any, *, max_length: int = SANITIZE_MAX_FIELD_LENGTH) -> str:
+    """Strip control characters and truncate free-text fields before LLM submission."""
+    text = str(value or "").strip()
+    # Remove C0/C1 control chars except common whitespace (tab, newline)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+    return text[:max_length]
+
+
+def _scrub_api_key_from_text(text: str) -> str:
+    """Replace API key-like patterns in error messages with '[REDACTED]'."""
+    for pattern in _API_KEY_SCRUB_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
+
+def _should_retry(status_code: int | None) -> bool:
+    return status_code is not None and (status_code == 429 or status_code >= 500)
+
+
+def _retry_with_backoff(
+    fn: Callable[[], str],
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    base_seconds: float = DEFAULT_BACKOFF_BASE_SECONDS,
+) -> str:
+    """Call *fn* with exponential backoff on retriable HTTP errors."""
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except AiAuditError as exc:
+            last_exc = exc
+            cause = exc.__cause__
+            status = None
+            if isinstance(cause, urllib.error.HTTPError):
+                status = cause.code
+            if not _should_retry(status) or attempt >= max_retries:
+                raise
+            wait = base_seconds * (2 ** attempt)
+            _logger.warning(
+                "ai_audit attempt %d/%d failed with status %s; retrying in %.1fs",
+                attempt + 1, max_retries + 1, status, wait,
+            )
+            time.sleep(wait)
+    raise last_exc  # type: ignore[misc]
 
 
 def build_ai_audit_endpoints(
@@ -290,31 +353,35 @@ def _openai_compatible_chat_completion(
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
-            response_body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
-    except Exception as exc:  # pragma: no cover - network failure shape depends on runtime
-        raise AiAuditError(str(exc)) from exc
+    def _call() -> str:
+        try:
+            with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
+                response_body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            detail = _scrub_api_key_from_text(detail)
+            raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            raise AiAuditError(f"network or encoding error: {exc}") from exc
 
-    payload = json.loads(response_body)
-    choices = payload.get("choices") if isinstance(payload, Mapping) else None
-    if not choices:
-        raise AiAuditError("empty completion choices")
-    first = choices[0]
-    if not isinstance(first, Mapping):
-        raise AiAuditError("invalid completion choice")
-    message = first.get("message")
-    if isinstance(message, Mapping):
-        content = message.get("content")
-    else:
-        content = first.get("text")
-    text = str(content or "").strip()
-    if not text:
-        raise AiAuditError("empty completion content")
-    return text
+        payload = json.loads(response_body)
+        choices = payload.get("choices") if isinstance(payload, Mapping) else None
+        if not choices:
+            raise AiAuditError("empty completion choices")
+        first = choices[0]
+        if not isinstance(first, Mapping):
+            raise AiAuditError("invalid completion choice")
+        message = first.get("message")
+        if isinstance(message, Mapping):
+            content = message.get("content")
+        else:
+            content = first.get("text")
+        text = str(content or "").strip()
+        if not text:
+            raise AiAuditError("empty completion content")
+        return text
+
+    return _retry_with_backoff(_call)
 
 
 def _anthropic_messages_url(base_url: str) -> str:
@@ -354,27 +421,31 @@ def _anthropic_messages_completion(
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
-            response_body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
-    except Exception as exc:  # pragma: no cover - network failure shape depends on runtime
-        raise AiAuditError(str(exc)) from exc
+    def _call() -> str:
+        try:
+            with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
+                response_body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            detail = _scrub_api_key_from_text(detail)
+            raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            raise AiAuditError(f"network or encoding error: {exc}") from exc
 
-    payload = json.loads(response_body)
-    content = payload.get("content") if isinstance(payload, Mapping) else None
-    if not isinstance(content, Sequence) or isinstance(content, (str, bytes, bytearray)):
-        raise AiAuditError("Anthropic response did not include content")
-    text_parts = [
-        str(block.get("text") or "").strip()
-        for block in content
-        if isinstance(block, Mapping) and block.get("type") == "text" and str(block.get("text") or "").strip()
-    ]
-    if not text_parts:
-        raise AiAuditError("Anthropic response did not include text content")
-    return "\n\n".join(text_parts)
+        payload = json.loads(response_body)
+        content = payload.get("content") if isinstance(payload, Mapping) else None
+        if not isinstance(content, Sequence) or isinstance(content, (str, bytes, bytearray)):
+            raise AiAuditError("Anthropic response did not include content")
+        text_parts = [
+            str(block.get("text") or "").strip()
+            for block in content
+            if isinstance(block, Mapping) and block.get("type") == "text" and str(block.get("text") or "").strip()
+        ]
+        if not text_parts:
+            raise AiAuditError("Anthropic response did not include text content")
+        return "\n\n".join(text_parts)
+
+    return _retry_with_backoff(_call)
 
 
 def _complete_with_endpoint(
@@ -526,19 +597,19 @@ def _normalize_ai_audit_response(response: Mapping[str, Any]) -> dict[str, Any]:
 
 def _build_crisis_audit_messages(crisis_payload: Mapping[str, Any]) -> tuple[Mapping[str, str], ...]:
     audit_input = {
-        "as_of": crisis_payload.get("as_of"),
-        "canonical_route": crisis_payload.get("canonical_route"),
-        "suggested_action": crisis_payload.get("suggested_action"),
-        "would_trade_if_enabled": crisis_payload.get("would_trade_if_enabled"),
-        "watch_label": crisis_payload.get("watch_label"),
-        "price_scanner_active": crisis_payload.get("price_scanner_active"),
-        "bubble_fragility_active": crisis_payload.get("bubble_fragility_active"),
-        "kill_switch_active": crisis_payload.get("kill_switch_active"),
-        "kill_switch_reason": crisis_payload.get("kill_switch_reason"),
-        "data_freshness": crisis_payload.get("data_freshness"),
-        "data_quality": crisis_payload.get("data_quality"),
-        "evidence": crisis_payload.get("evidence"),
-        "deterministic_audit_summary": crisis_payload.get("audit_summary"),
+        "as_of": _sanitize_user_input(crisis_payload.get("as_of")),
+        "canonical_route": _sanitize_user_input(crisis_payload.get("canonical_route")),
+        "suggested_action": _sanitize_user_input(crisis_payload.get("suggested_action")),
+        "would_trade_if_enabled": _sanitize_user_input(crisis_payload.get("would_trade_if_enabled")),
+        "watch_label": _sanitize_user_input(crisis_payload.get("watch_label")),
+        "price_scanner_active": _sanitize_user_input(crisis_payload.get("price_scanner_active")),
+        "bubble_fragility_active": _sanitize_user_input(crisis_payload.get("bubble_fragility_active")),
+        "kill_switch_active": _sanitize_user_input(crisis_payload.get("kill_switch_active")),
+        "kill_switch_reason": _sanitize_user_input(crisis_payload.get("kill_switch_reason")),
+        "data_freshness": _sanitize_user_input(crisis_payload.get("data_freshness")),
+        "data_quality": _sanitize_user_input(crisis_payload.get("data_quality")),
+        "evidence": _sanitize_user_input(crisis_payload.get("evidence")),
+        "deterministic_audit_summary": _sanitize_user_input(crisis_payload.get("audit_summary")),
     }
     return (
         {
@@ -561,22 +632,22 @@ def _build_crisis_audit_messages(crisis_payload: Mapping[str, Any]) -> tuple[Map
 
 def _build_taco_audit_messages(taco_payload: Mapping[str, Any]) -> tuple[Mapping[str, str], ...]:
     audit_input = {
-        "as_of": taco_payload.get("as_of"),
-        "canonical_route": taco_payload.get("canonical_route"),
-        "suggested_action": taco_payload.get("suggested_action"),
-        "manual_review_required": taco_payload.get("manual_review_required"),
-        "notification_reason": taco_payload.get("notification_reason"),
-        "suppression_reason": taco_payload.get("suppression_reason"),
-        "rebound_context_active": taco_payload.get("rebound_context_active"),
-        "event_context_active": taco_payload.get("event_context_active"),
-        "price_stress_scan_active": taco_payload.get("price_stress_scan_active"),
-        "price_crisis_guard_active": taco_payload.get("price_crisis_guard_active"),
-        "event_quality": taco_payload.get("event_quality"),
-        "data_freshness": taco_payload.get("data_freshness"),
-        "selected_event": taco_payload.get("selected_event"),
-        "recognized_event_ids": taco_payload.get("recognized_event_ids"),
-        "active_event_ids": taco_payload.get("active_event_ids"),
-        "rebound_confirmation": taco_payload.get("rebound_confirmation"),
+        "as_of": _sanitize_user_input(taco_payload.get("as_of")),
+        "canonical_route": _sanitize_user_input(taco_payload.get("canonical_route")),
+        "suggested_action": _sanitize_user_input(taco_payload.get("suggested_action")),
+        "manual_review_required": _sanitize_user_input(taco_payload.get("manual_review_required")),
+        "notification_reason": _sanitize_user_input(taco_payload.get("notification_reason")),
+        "suppression_reason": _sanitize_user_input(taco_payload.get("suppression_reason")),
+        "rebound_context_active": _sanitize_user_input(taco_payload.get("rebound_context_active")),
+        "event_context_active": _sanitize_user_input(taco_payload.get("event_context_active")),
+        "price_stress_scan_active": _sanitize_user_input(taco_payload.get("price_stress_scan_active")),
+        "price_crisis_guard_active": _sanitize_user_input(taco_payload.get("price_crisis_guard_active")),
+        "event_quality": _sanitize_user_input(taco_payload.get("event_quality")),
+        "data_freshness": _sanitize_user_input(taco_payload.get("data_freshness")),
+        "selected_event": _sanitize_user_input(taco_payload.get("selected_event")),
+        "recognized_event_ids": _sanitize_user_input(taco_payload.get("recognized_event_ids")),
+        "active_event_ids": _sanitize_user_input(taco_payload.get("active_event_ids")),
+        "rebound_confirmation": _sanitize_user_input(taco_payload.get("rebound_confirmation")),
     }
     return (
         {

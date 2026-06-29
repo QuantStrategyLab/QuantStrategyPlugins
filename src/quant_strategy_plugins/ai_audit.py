@@ -758,6 +758,62 @@ def _failure_text(exc: BaseException) -> str:
     return _bounded_text(f"{type(exc).__name__}: {exc}", limit=300)
 
 
+def _report_shadow_disagreement(
+    *,
+    audit_kind: str,
+    ai_verdict: str,
+    ai_confidence: float,
+    deterministic_route: str,
+) -> None:
+    """Fire-and-forget report of AI vs deterministic disagreement to AiGateway.
+
+    When AI shadow audit disagrees with the deterministic route, report it
+    so the gateway can track cumulative disagreements and auto-escalate.
+    Only sends if CODEX_AUDIT_SERVICE_URL is configured.
+    """
+    import urllib.request as _ur
+    service_url = os.environ.get("CODEX_AUDIT_SERVICE_URL", "").strip()
+    if not service_url:
+        return
+    # Only report if AI disagrees (verdict is not "agree")
+    if ai_verdict == "agree":
+        return
+    try:
+        # Map audit kind to plugin name
+        plugin_map = {
+            "crisis_response_shadow": "crisis_response",
+            "taco_rebound_shadow": "taco_rebound",
+        }
+        plugin = plugin_map.get(audit_kind, audit_kind)
+        token = _env(
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+            "CODEX_AUDIT_SERVICE_TOKEN",
+        ) or ""
+        if not token:
+            token = os.environ.get("CODEX_AUDIT_SERVICE_TOKEN", "")
+        if not token:
+            return  # No auth available, skip silently
+        payload = json.dumps({
+            "plugin": plugin,
+            "ai_verdict": ai_verdict,
+            "ai_confidence": ai_confidence,
+            "deterministic_route": deterministic_route,
+            "source_repository": os.environ.get("AI_GATEWAY_SOURCE_REPO", ""),
+        }).encode("utf-8")
+        req = _ur.Request(
+            f"{service_url.rstrip('/')}/v1/ai/feedback/shadow",
+            data=payload, method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "User-Agent": "quant-strategy-plugins",
+            },
+        )
+        _ur.urlopen(req, timeout=5)
+    except Exception:
+        pass  # Fire-and-forget — never block the main audit flow
+
+
 def build_disabled_ai_audit(*, audit_kind: str = "strategy_plugin") -> dict[str, Any]:
     return {
         "schema_version": AI_AUDIT_SCHEMA_VERSION,
@@ -839,6 +895,16 @@ def _run_ai_audit(
             raw_response = client(endpoint, messages, float(timeout_seconds))
             audit_response = _normalize_ai_audit_response(_extract_json_object(raw_response))
             attempts.append({**endpoint.report(), "status": "ok"})
+
+            # Phase 3: report AI vs deterministic disagreement to AiGateway
+            _report_shadow_disagreement(
+                audit_kind=audit_kind,
+                ai_verdict=audit_response.get("verdict", ""),
+                ai_confidence=audit_response.get("confidence") or 0.0,
+                deterministic_route=str(deterministic_payload.get("canonical_route") or
+                                       deterministic_payload.get("suggested_action") or ""),
+            )
+
             return {
                 **base_payload,
                 "status": "ok",

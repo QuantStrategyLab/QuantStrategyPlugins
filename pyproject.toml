@@ -8,7 +8,7 @@ version = "0.1.7"
 description = "Open sidecar strategy plugins that emit QuantPlatformKit-compatible signal artifacts."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
   { name = "QuantStrategyLab" }
 ]

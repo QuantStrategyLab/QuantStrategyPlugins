@@ -164,14 +164,16 @@ def run_backtest(df: pd.DataFrame, retention_ratio: float = 0.50) -> dict[str, A
 
 def _cagr(eq):
     nz = eq[eq > 0]
-    if len(nz) < 2: return 0.0
+    if len(nz) < 2:
+        return 0.0
     tr = nz.iloc[-1] / nz.iloc[0] - 1.0
     y = len(nz) / 252
     return (1 + tr) ** (1 / y) - 1 if y > 0 else 0.0
 
 
 def _max_dd(eq):
-    if len(eq) < 2: return 0.0
+    if len(eq) < 2:
+        return 0.0
     return float(((eq - eq.expanding().max()) / eq.expanding().max()).min())
 
 
@@ -201,7 +203,7 @@ def print_report(base: dict, sweep: list[dict]) -> None:
     print("=" * 80)
     print("  VOLATILITY DELEVER THRESHOLD BACKTEST (2015-2026)")
     print("=" * 80)
-    print(f"  Defaults: dd_limit=-0.18, vol_ratio=1.65, retention=0.50")
+    print("  Defaults: dd_limit=-0.18, vol_ratio=1.65, retention=0.50")
     print(f"  Delever episodes: {base['delever_episodes']}, "
           f"delever % of days: {base['delever_pct']:.1%}")
     print()

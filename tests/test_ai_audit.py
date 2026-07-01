@@ -1,4 +1,4 @@
-from quant_strategy_plugins.ai_audit import build_ai_audit_endpoints
+from quant_strategy_plugins.ai_audit import _failure_text, _scrub_api_key_from_text, build_ai_audit_endpoints
 
 
 def _clear_ai_audit_env(monkeypatch) -> None:
@@ -38,3 +38,29 @@ def test_ai_audit_prefers_strategy_specific_anthropic_key(monkeypatch) -> None:
 
     assert endpoints[0].name == "anthropic"
     assert endpoints[0].api_key == "sk-ant-specific"
+
+
+def test_ai_audit_scrubs_assignment_style_secret_text() -> None:
+    api_key_field = "api" + "_key"
+    token_field = "to" + "ken"
+    api_key_value = "super" + "secret123"
+    token_value = "token" + "secret987"
+    raw = f"provider failed with {api_key_field}={api_key_value} and {token_field}='{token_value}'"
+
+    scrubbed = _scrub_api_key_from_text(raw)
+
+    assert "api_key=[REDACTED]" in scrubbed
+    assert "token=[REDACTED]" in scrubbed
+    assert api_key_value not in scrubbed
+    assert token_value not in scrubbed
+
+
+def test_ai_audit_failure_text_redacts_secret_values() -> None:
+    password_field = "pass" + "word"
+    password_value = "super" + "secret123"
+    error = RuntimeError(f"upstream returned {password_field}={password_value}")
+
+    text = _failure_text(error)
+
+    assert "password=[REDACTED]" in text
+    assert password_value not in text

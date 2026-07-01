@@ -38,6 +38,10 @@ _API_KEY_SCRUB_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"sk-ant-[a-zA-Z0-9_\-]{32,}", re.IGNORECASE),
     re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.=]{20,}", re.IGNORECASE),
     re.compile(r"x-api-key:\s*[^\s,;]{20,}", re.IGNORECASE),
+    re.compile(
+        r"\b(api[_-]?key|auth[_-]?token|credential|password|private[_-]?key|secret|token)\s*[:=]\s*([\"']?)[^\"'\s,;]{8,}([\"']?)",
+        re.IGNORECASE,
+    ),
 ]
 
 
@@ -130,7 +134,10 @@ def _sanitize_user_input(value: Any, *, max_length: int = SANITIZE_MAX_FIELD_LEN
 def _scrub_api_key_from_text(text: str) -> str:
     """Replace API key-like patterns in error messages with '[REDACTED]'."""
     for pattern in _API_KEY_SCRUB_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
+        text = pattern.sub(
+            lambda match: f"{match.group(1)}=[REDACTED]" if match.lastindex == 3 else "[REDACTED]",
+            text,
+        )
     return text
 
 
@@ -362,7 +369,7 @@ def _openai_compatible_chat_completion(
             detail = _scrub_api_key_from_text(detail)
             raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
         except (urllib.error.URLError, OSError, ValueError) as exc:
-            raise AiAuditError(f"network or encoding error: {exc}") from exc
+            raise AiAuditError(f"network or encoding error: {_scrub_api_key_from_text(str(exc))}") from exc
 
         payload = json.loads(response_body)
         choices = payload.get("choices") if isinstance(payload, Mapping) else None
@@ -430,7 +437,7 @@ def _anthropic_messages_completion(
             detail = _scrub_api_key_from_text(detail)
             raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
         except (urllib.error.URLError, OSError, ValueError) as exc:
-            raise AiAuditError(f"network or encoding error: {exc}") from exc
+            raise AiAuditError(f"network or encoding error: {_scrub_api_key_from_text(str(exc))}") from exc
 
         payload = json.loads(response_body)
         content = payload.get("content") if isinstance(payload, Mapping) else None
@@ -488,7 +495,10 @@ def _codex_via_gateway(prompt: str, model: str, timeout_seconds: float) -> str:
     except ImportError:
         return _codex_exec_direct(prompt, timeout_seconds)
     except Exception as exc:
-        _logger.warning("ai_audit gateway codex call failed: %s; falling back to direct", exc)
+        _logger.warning(
+            "ai_audit gateway codex call failed: %s; falling back to direct",
+            _scrub_api_key_from_text(str(exc)),
+        )
         return _codex_exec_direct(prompt, timeout_seconds)
 
 
@@ -505,7 +515,10 @@ def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: fl
     except ImportError:
         return _llm_direct(prompt, model, provider, timeout_seconds)
     except Exception as exc:
-        _logger.warning("ai_audit gateway analyze call failed: %s; falling back to direct", exc)
+        _logger.warning(
+            "ai_audit gateway analyze call failed: %s; falling back to direct",
+            _scrub_api_key_from_text(str(exc)),
+        )
         return _llm_direct(prompt, model, provider, timeout_seconds)
 
 
@@ -755,7 +768,7 @@ def _build_taco_audit_messages(taco_payload: Mapping[str, Any]) -> tuple[Mapping
 
 
 def _failure_text(exc: BaseException) -> str:
-    return _bounded_text(f"{type(exc).__name__}: {exc}", limit=300)
+    return _bounded_text(_scrub_api_key_from_text(f"{type(exc).__name__}: {exc}"), limit=300)
 
 
 def _report_shadow_disagreement(

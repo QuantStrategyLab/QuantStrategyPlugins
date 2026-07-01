@@ -19,9 +19,14 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e '.[test]'
+      - name: Verify dependencies
+        run: python -m pip check
       - name: Run tests
         run: python -m pytest -q
       - name: Ruff
         run: ruff check .
+      - name: Build package
+        run: python -m build

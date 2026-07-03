@@ -9,4 +9,3 @@ def test_qsl_compat_metadata_exists_and_bundle() -> None:
         data = tomllib.load(f)
 
     assert data.get("compat", {}).get("bundle") == "2026.07.0", "compat.bundle mismatch"
-

@@ -17,6 +17,10 @@ QuantStrategyPlugins 是 QuantStrategyLab 的策略插件包。提供 market-reg
 - 密钥和环境专属配置不要写进共享库代码。
 - 会影响多个平台或策略包的改动，需要在文档中说明。
 
+## 延伸文档
+
+- [`docs/plugin_lifecycle_policy.zh-CN.md`](docs/plugin_lifecycle_policy.zh-CN.md)
+
 ## 仓库结构
 
 - `src/`：库代码和运行时代码。
@@ -34,6 +38,7 @@ python -m pytest -q
 
 ## 延伸文档
 
+- [`docs/plugin_lifecycle_policy.zh-CN.md`](docs/plugin_lifecycle_policy.zh-CN.md)
 - [`docs/market-regime-control-plan.md`](docs/market-regime-control-plan.md)
 - [`docs/market-regime-control-plan.zh-CN.md`](docs/market-regime-control-plan.zh-CN.md)
 

@@ -5,6 +5,9 @@
 This document records the current design boundary, arbitration order, strategy
 consumption policy, and backtest evidence for `market_regime_control`.
 
+See also: [`plugin_lifecycle_policy.md`](./plugin_lifecycle_policy.md) for the
+shared plugin stage ladder and gate model.
+
 ## Goals
 
 `market_regime_control` is a unified deterministic market-regime facade. It

@@ -33,7 +33,7 @@ python -m pytest -q
 ```
 
 ## Useful docs
-
+- [`docs/plugin_lifecycle_policy.md`](docs/plugin_lifecycle_policy.md)
 - [`docs/market-regime-control-plan.md`](docs/market-regime-control-plan.md)
 - [`docs/market-regime-control-plan.zh-CN.md`](docs/market-regime-control-plan.zh-CN.md)
 

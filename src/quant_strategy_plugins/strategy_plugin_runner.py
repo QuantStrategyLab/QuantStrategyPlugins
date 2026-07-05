@@ -15,24 +15,20 @@ from .crisis_response_shadow_plugin import (
     write_crisis_response_shadow_outputs,
 )
 from .macro_risk_governor_plugin import (
-    MACRO_RISK_GOVERNOR_PROFILE,
     build_macro_risk_governor_signal,
     write_macro_risk_governor_outputs,
 )
 from .market_regime_control_plugin import (
-    MARKET_REGIME_CONTROL_PROFILE,
     build_market_regime_control_signal,
     write_market_regime_control_outputs,
 )
 from .panic_reversal_shadow_plugin import (
-    PANIC_REVERSAL_PROFILE,
     build_panic_reversal_shadow_signal,
     write_panic_reversal_shadow_outputs,
 )
 from .russell_1000_multi_factor_defensive_snapshot import read_table
 from .taco_panic_rebound_research import DEFAULT_EVENT_SET, resolve_trade_war_event_set
 from .taco_rebound_shadow_plugin import (
-    TACO_REBOUND_PROFILE,
     build_taco_rebound_shadow_signal,
     write_taco_rebound_shadow_outputs,
 )
@@ -51,6 +47,7 @@ from .plugin_policies import (
     PLUGIN_LIFECYCLE_POLICIES,
     PLUGIN_LIFECYCLE_POLICY_REGISTRY,
     PLUGIN_MACRO_RISK_GOVERNOR,
+    PLUGIN_MARKET_REGIME_CONTROL,
     PLUGIN_NOTIFICATION_TARGET_POLICIES,
     PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY,
     PLUGIN_PANIC_REVERSAL_SHADOW,
@@ -63,10 +60,6 @@ from .plugin_policies import (
 )
 
 DEFAULT_RUNNER_OUTPUT_DIR = "data/output/strategy_plugins"
-PLUGIN_MARKET_REGIME_CONTROL = MARKET_REGIME_CONTROL_PROFILE
-PLUGIN_MACRO_RISK_GOVERNOR = MACRO_RISK_GOVERNOR_PROFILE
-PLUGIN_PANIC_REVERSAL_SHADOW = PANIC_REVERSAL_PROFILE
-PLUGIN_TACO_REBOUND_SHADOW = TACO_REBOUND_PROFILE
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
 STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION = "strategy_plugin_messages.v1"
 STRATEGY_PLUGIN_LOG_SCHEMA_VERSION = "strategy_plugin_log.v1"
@@ -1796,6 +1789,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "EVIDENCE_AUTOMATION_APPROVED",
+    "EVIDENCE_DEPRECATED_COMPATIBILITY",
+    "EVIDENCE_NOTIFICATION_ONLY",
     "GENERAL_MARKET_REGIME_NOTIFICATION_TARGET",
     "PLUGIN_CRISIS_RESPONSE_SHADOW",
     "PLUGIN_MARKET_REGIME_CONTROL",
@@ -1807,6 +1803,8 @@ __all__ = [
     "PLUGIN_CONSUMPTION_POLICIES",
     "PLUGIN_CONSUMPTION_POLICY_REGISTRY",
     "PLUGIN_DEPRECATED_SUCCESSORS",
+    "PLUGIN_LIFECYCLE_POLICIES",
+    "PLUGIN_LIFECYCLE_POLICY_REGISTRY",
     "PLUGIN_NOTIFICATION_TARGET_POLICIES",
     "PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY",
     "PLUGIN_RESEARCH_ONLY_REASONS",
@@ -1814,6 +1812,7 @@ __all__ = [
     "STRATEGY_PLUGIN_LOG_SCHEMA_VERSION",
     "STRATEGY_PLUGIN_MESSAGE_SCHEMA_VERSION",
     "PluginConsumptionPolicy",
+    "PluginLifecyclePolicy",
     "PluginNotificationTargetPolicy",
     "PluginRunResult",
     "load_plugin_config",

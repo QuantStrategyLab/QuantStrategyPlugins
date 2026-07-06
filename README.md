@@ -1,5 +1,14 @@
 # QuantStrategyPlugins
 
+
+## QSL architecture role
+
+- **Layer**: `strategy-library`.
+- **Responsibility**: sidecar strategy plugin package.
+- **Owns**: plugin contracts, market-regime controls, notification/research plugin outputs.
+- **Consumes**: QuantPlatformKit and strategy/pipeline consumers.
+- **Must not**: decide live eligibility or connect to brokers directly.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.

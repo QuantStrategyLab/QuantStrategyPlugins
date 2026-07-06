@@ -1,5 +1,14 @@
 # QuantStrategyPlugins
 
+
+## QSL 架构角色
+
+- **层级**：`策略库`。
+- **职责**：sidecar 策略插件包。
+- **事实源/归属**：plugin contracts、market-regime controls、notification/research plugin outputs。
+- **消费对象**：QuantPlatformKit 和 strategy/pipeline consumers。
+- **禁止事项**：决定 live eligibility 或直接连接券商。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。

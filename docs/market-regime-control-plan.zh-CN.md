@@ -87,6 +87,9 @@
 - `notification_allowed`：允许生成和分发通知 artifact。
 - `position_control_allowed`：允许策略 runtime 自动消费仓位控制字段。
 - `evidence_status`：记录该策略/插件组合是 `automation_approved`、`notification_only` 还是 `deprecated_compatibility`。
+- 当 `position_control_allowed = true` 时，runner 输出还应暴露机器可读的
+  `auditable_position_control` 块，包含 `evidence_package_id`、
+  `evidence_valid_until` 和 `bounded_budget`。
 - `since_version`：记录该消费权限从哪个 runner schema 开始生效。
 
 权限边界写在文档和机器字段里，不重复写进人工通知正文：

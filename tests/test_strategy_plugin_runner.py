@@ -680,6 +680,15 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
                 "plugin": PLUGIN_MARKET_REGIME_CONTROL,
                 "enabled": True,
                 "inputs": {"prices": str(prices_path), "benchmark_symbol": "SOXX", "attack_symbol": "SOXL"},
+                "auditable_position_control": {
+                    "evidence_package_id": "pkg_001",
+                    "evidence_valid_until": "2026-08-01T00:00:00Z",
+                    "bounded_budget": {
+                        "name": "position_control",
+                        "amount": 0.5,
+                        "unit": "fraction",
+                    },
+                },
                 "outputs": {"output_dir": str(output_dir)},
             }
         ],
@@ -697,6 +706,15 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
     assert payload["execution_controls"]["capital_impact"] == "strategy_opt_in"
     assert payload["execution_controls"]["position_control_shadow_only"] is False
+    assert payload["execution_controls"]["auditable_position_control"] == {
+        "evidence_package_id": "pkg_001",
+        "evidence_valid_until": "2026-08-01T00:00:00Z",
+        "bounded_budget": {
+            "name": "position_control",
+            "amount": 0.5,
+            "unit": "fraction",
+        },
+    }
     assert payload["execution_controls"]["manual_review_notification_delegated"] is True
     assert (
         payload["execution_controls"]["manual_review_notification_target"]
@@ -709,6 +727,7 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     volatility_delever_context = payload["position_control"]["volatility_delever_context"]
     assert volatility_delever_context["actionable_for_position_control"] is True
     assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
+    assert payload["position_control"]["auditable_position_control"] == payload["execution_controls"]["auditable_position_control"]
 
 
 def test_strategy_plugin_runner_marks_pending_strategy_mount_notification_only(tmp_path) -> None:

@@ -36,6 +36,9 @@ For any plugin-driven capital impact, all three gates must pass:
 2. **Plugin evidence gate**
    - The plugin must be marked `automation_approved` and
      `position_control_allowed = true`.
+   - If the platform enables automated position control, the runner should also
+     carry a machine-readable `auditable_position_control` block with
+     `evidence_package_id`, `evidence_valid_until`, and `bounded_budget`.
 3. **Strategy/platform gate**
    - The consuming strategy must explicitly opt in to the plugin and remain
      allowed by the platform catalog.

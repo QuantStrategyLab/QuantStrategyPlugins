@@ -32,6 +32,9 @@
    - artifact 必须匹配支持的 schema version，并在共享契约中保持 `shadow` 模式。
 2. **插件证据门槛**
    - 插件必须标记为 `automation_approved`，且 `position_control_allowed = true`。
+   - 如果平台启用自动仓位控制，runner 还应携带机器可读的
+     `auditable_position_control` 块，包含 `evidence_package_id`、
+     `evidence_valid_until` 和 `bounded_budget`。
 3. **策略 / 平台门槛**
    - 消费策略必须显式 opt-in，并且仍然被平台 catalog 允许。
 

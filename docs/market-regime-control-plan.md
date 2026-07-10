@@ -148,6 +148,9 @@ allowlist:
   position-control fields.
 - `evidence_status`: records whether the strategy/plugin pair is
   `automation_approved`, `notification_only`, or `deprecated_compatibility`.
+- When `position_control_allowed = true`, the runner output should also expose
+  a machine-readable `auditable_position_control` block with
+  `evidence_package_id`, `evidence_valid_until`, and `bounded_budget`.
 - `since_version`: records the runner schema version where the permission
   became effective.
 

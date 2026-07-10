@@ -1,5 +1,5 @@
-tier = "strategy-library"
-ring = 1
+tier = "strategy-lib"
+upgrade_ring = "ring_b"
 
 [compat]
 bundle = "2026.07.1"

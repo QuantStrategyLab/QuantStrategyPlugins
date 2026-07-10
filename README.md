@@ -3,7 +3,7 @@
 
 ## QSL architecture role
 
-- **Layer**: `strategy-library`.
+- **Layer**: `strategy-lib`.
 - **Responsibility**: sidecar strategy plugin package.
 - **Owns**: plugin contracts, market-regime controls, notification/research plugin outputs.
 - **Consumes**: QuantPlatformKit and strategy/pipeline consumers.

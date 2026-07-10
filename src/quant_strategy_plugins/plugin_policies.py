@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 EVIDENCE_AUTOMATION_APPROVED = "automation_approved"
 EVIDENCE_NOTIFICATION_ONLY = "notification_only"
@@ -31,6 +32,12 @@ PLUGIN_DEPRECATED_SUCCESSORS: dict[str, str] = {
     PLUGIN_TACO_REBOUND_SHADOW: PLUGIN_MARKET_REGIME_CONTROL,
 }
 PLUGIN_RESEARCH_ONLY_REASONS: dict[str, str] = {}
+
+AUDITABLE_POSITION_CONTROL_FIELDS: tuple[str, ...] = (
+    "evidence_package_id",
+    "evidence_valid_until",
+    "bounded_budget",
+)
 
 
 @dataclass(frozen=True)
@@ -240,6 +247,25 @@ PLUGIN_NOTIFICATION_TARGET_POLICY_REGISTRY: dict[tuple[str, str], PluginNotifica
     (policy.plugin, policy.notification_target): policy for policy in PLUGIN_NOTIFICATION_TARGET_POLICIES
 }
 
+
+def extract_auditable_position_control_context(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return the auditable position-control evidence block if present.
+
+    The preferred shape is ``{"auditable_position_control": {...}}`` but the
+    helper also accepts a flat mapping so existing configs can opt in without a
+    schema migration.
+    """
+    if not isinstance(raw, Mapping):
+        return {}
+    candidate = raw.get("auditable_position_control")
+    if isinstance(candidate, Mapping):
+        raw = candidate
+    return {
+        key: raw[key]
+        for key in AUDITABLE_POSITION_CONTROL_FIELDS
+        if raw.get(key) is not None
+    }
+
 PLUGIN_COMPATIBLE_STRATEGIES: dict[str, tuple[str, ...]] = {
     plugin: tuple(
         policy.strategy
@@ -262,6 +288,7 @@ __all__ = [
     "EVIDENCE_AUTOMATION_APPROVED",
     "EVIDENCE_DEPRECATED_COMPATIBILITY",
     "EVIDENCE_NOTIFICATION_ONLY",
+    "AUDITABLE_POSITION_CONTROL_FIELDS",
     "GENERAL_MARKET_REGIME_NOTIFICATION_TARGET",
     "PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS",
     "PLUGIN_COMPATIBLE_STRATEGIES",
@@ -285,4 +312,5 @@ __all__ = [
     "PluginConsumptionPolicy",
     "PluginLifecyclePolicy",
     "PluginNotificationTargetPolicy",
+    "extract_auditable_position_control_context",
 ]

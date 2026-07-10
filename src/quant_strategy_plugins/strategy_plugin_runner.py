@@ -54,6 +54,7 @@ from .plugin_policies import (
     PLUGIN_RESEARCH_ONLY_REASONS,
     PLUGIN_SCHEMA_VERSIONS,
     PLUGIN_TACO_REBOUND_SHADOW,
+    extract_auditable_position_control_context,
     PluginConsumptionPolicy,
     PluginLifecyclePolicy,
     PluginNotificationTargetPolicy,
@@ -1323,6 +1324,7 @@ def _apply_plugin_contract(
     notification_target: str | None = None,
     plugin: str,
     mode: str,
+    auditable_position_control: Mapping[str, Any] | None = None,
     consumption_policy: PluginConsumptionPolicy | None = None,
     notification_target_policy: PluginNotificationTargetPolicy | None = None,
 ) -> dict[str, Any]:
@@ -1368,6 +1370,10 @@ def _apply_plugin_contract(
             execution_controls["capital_impact"] = "strategy_opt_in"
             execution_controls["strategy_runtime_metadata_allowed"] = True
             execution_controls["position_control_shadow_only"] = False
+            if auditable_position_control:
+                execution_controls["auditable_position_control"] = auditable_position_control
+                contracted_payload["position_control"] = dict(contracted_payload.get("position_control") or {})
+                contracted_payload["position_control"]["auditable_position_control"] = auditable_position_control
         else:
             execution_controls["capital_impact"] = "notification_only"
             execution_controls["strategy_runtime_metadata_allowed"] = False
@@ -1513,6 +1519,9 @@ def _run_table_strategy_plugin(
         strategy=strategy,
         plugin=plugin,
         mode=mode,
+        auditable_position_control=extract_auditable_position_control_context(
+            plugin_config.get("auditable_position_control")
+        ),
         consumption_policy=consumption_policy,
     )
     paths = spec.write_outputs(payload, output_dir)

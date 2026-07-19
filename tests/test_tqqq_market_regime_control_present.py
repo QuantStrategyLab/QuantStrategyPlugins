@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -67,9 +68,13 @@ output_dir = "{tmp_path / 'writer-output'}"
     return config_path
 
 
-def _capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    source_checks: list[str] = []
-    monkeypatch.setattr(present_module, "_verify_source_identity", lambda expected: source_checks.append(expected))
+def _capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, output_dir: Path | None = None):
+    source_checks: list[Path | None] = []
+    monkeypatch.setattr(
+        present_module,
+        "_verify_source_identity",
+        lambda _expected, private_stage=None: source_checks.append(private_stage),
+    )
     calls: list[dict[str, object]] = []
 
     def run_once(config: dict[str, object], mode: str):
@@ -79,7 +84,7 @@ def _capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(present_module, "run_market_regime_control_plugin", run_once)
     package = present_module.capture_tqqq_market_regime_control_present(
         config_path=_config(tmp_path),
-        output_dir=tmp_path / "packages",
+        output_dir=output_dir or tmp_path / "packages",
         expected_qsp_commit_sha=EXPECTED_COMMIT,
         as_of=AS_OF,
         session_id=f"XNAS:{AS_OF}",
@@ -95,7 +100,8 @@ def test_capture_publishes_one_canonical_package_after_one_current_producer_call
     payload_bytes = base64.b64decode(decoded["payload"]["bytes_b64"], validate=True)
 
     assert len(calls) == 1
-    assert source_checks == [EXPECTED_COMMIT, EXPECTED_COMMIT]
+    assert source_checks[0] is None
+    assert source_checks[1] is not None
     assert package.path.parent == tmp_path / "packages"
     assert package.path.name == f"tqqq-market-regime-control-present-{AS_OF}-{package.sha256}.json"
     assert package.sha256 == hashlib.sha256(package_bytes).hexdigest()
@@ -111,6 +117,20 @@ def test_capture_publishes_one_canonical_package_after_one_current_producer_call
     assert decoded["config"]["value"]["mode"] == "shadow"
     assert decoded["payload"]["sha256"] == hashlib.sha256(payload_bytes).hexdigest()
     assert list((tmp_path / "packages").iterdir()) == [package.path]
+
+
+def test_capture_allows_unignored_in_repository_output_and_removes_private_stage(tmp_path, monkeypatch) -> None:
+    output_dir = Path.cwd() / f"tqqq-present-output-{tmp_path.name}"
+    try:
+        package, _, source_checks = _capture(tmp_path, monkeypatch, output_dir=output_dir)
+
+        assert package.path.parent == output_dir
+        assert source_checks[0] is None
+        assert source_checks[1] is not None
+        assert source_checks[1].parent == output_dir
+        assert not list(output_dir.glob(".tqqq-market-regime-control-present-*"))
+    finally:
+        shutil.rmtree(output_dir, ignore_errors=True)
 
 
 def test_capture_rejects_staged_input_mutation_without_a_final_package(tmp_path, monkeypatch) -> None:
@@ -164,6 +184,71 @@ def test_source_identity_rejects_a_wrong_expected_commit(monkeypatch) -> None:
 
     with pytest.raises(present_module.PresentPackageError, match="T2B2_PRODUCER_IDENTITY_INVALID"):
         present_module._verify_source_identity("0" * 40)
+
+
+def _source_identity_git(monkeypatch, status: str) -> tuple[Path, list[tuple[str, ...]]]:
+    root = Path.cwd().resolve()
+    relative_module = Path(present_module.__file__).resolve().relative_to(root)
+    calls: list[tuple[str, ...]] = []
+
+    def fake_git(*args: str) -> str:
+        calls.append(args)
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(root)
+        if args == ("ls-files", "--error-unmatch", str(relative_module)):
+            return str(relative_module)
+        if args and args[0] == "status":
+            return status
+        if args == ("rev-parse", "HEAD"):
+            return EXPECTED_COMMIT
+        raise AssertionError(args)
+
+    monkeypatch.setattr(present_module, "_git", fake_git)
+    return root, calls
+
+
+def test_second_source_identity_check_allows_only_its_private_stage(monkeypatch) -> None:
+    root = Path.cwd().resolve()
+    private_stage = root / "unignored-output" / ".tqqq-market-regime-control-present-test"
+    relative_stage = private_stage.relative_to(root).as_posix()
+    _, calls = _source_identity_git(monkeypatch, f"?? {relative_stage}/\0")
+
+    present_module._verify_source_identity(EXPECTED_COMMIT, private_stage=private_stage)
+
+    assert ("status", "--porcelain=v1", "-z", "--untracked-files=all") in calls
+
+    with pytest.raises(present_module.PresentPackageError, match="T2B2_PRODUCER_IDENTITY_INVALID"):
+        present_module._verify_source_identity(EXPECTED_COMMIT)
+
+
+@pytest.mark.parametrize("status", [" M src/unrelated.py\0", "?? unrelated.txt\0"])
+def test_second_source_identity_check_rejects_unrelated_tracked_or_untracked_dirt(monkeypatch, status: str) -> None:
+    root = Path.cwd().resolve()
+    private_stage = root / "unignored-output" / ".tqqq-market-regime-control-present-test"
+    _source_identity_git(monkeypatch, f"?? {private_stage.relative_to(root).as_posix()}/\0{status}")
+
+    with pytest.raises(present_module.PresentPackageError, match="T2B2_PRODUCER_IDENTITY_INVALID"):
+        present_module._verify_source_identity(EXPECTED_COMMIT, private_stage=private_stage)
+
+
+def test_identity_failure_does_not_create_a_final_package(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        present_module,
+        "_verify_source_identity",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(present_module.PresentPackageError("T2B2_PRODUCER_IDENTITY_INVALID", 2)),
+    )
+    destination = tmp_path / "packages"
+
+    with pytest.raises(present_module.PresentPackageError, match="T2B2_PRODUCER_IDENTITY_INVALID"):
+        present_module.capture_tqqq_market_regime_control_present(
+            config_path=_config(tmp_path),
+            output_dir=destination,
+            expected_qsp_commit_sha=EXPECTED_COMMIT,
+            as_of=AS_OF,
+            session_id=f"XNAS:{AS_OF}",
+        )
+
+    assert not destination.exists()
 
 
 def test_strict_readback_rejects_an_unknown_package_field(tmp_path, monkeypatch) -> None:

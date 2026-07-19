@@ -161,7 +161,23 @@ def _git(*args: str) -> str:
     return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL).strip()
 
 
-def _verify_source_identity(expected_qsp_commit_sha: str) -> None:
+def _only_private_stage_is_dirty(root: Path, status: str, private_stage: Path) -> bool:
+    try:
+        relative_stage = private_stage.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return False
+    if not private_stage.name.startswith(".tqqq-market-regime-control-present-"):
+        return False
+    for record in filter(None, status.split("\0")):
+        if len(record) < 4 or record[:2] != "??":
+            return False
+        path = record[3:]
+        if path != relative_stage and not path.startswith(f"{relative_stage}/"):
+            return False
+    return bool(status)
+
+
+def _verify_source_identity(expected_qsp_commit_sha: str, *, private_stage: Path | None = None) -> None:
     if not _is_commit_sha(expected_qsp_commit_sha):
         _fail("T2B2_PRODUCER_IDENTITY_INVALID", 2)
     try:
@@ -172,7 +188,8 @@ def _verify_source_identity(expected_qsp_commit_sha: str) -> None:
         relative_module = module_path.relative_to(root)
         if _git("ls-files", "--error-unmatch", str(relative_module)) != str(relative_module):
             _fail("T2B2_PRODUCER_IDENTITY_INVALID", 2)
-        if _git("status", "--porcelain"):
+        status = _git("status", "--porcelain=v1", "-z", "--untracked-files=all")
+        if status and (private_stage is None or not _only_private_stage_is_dirty(root, status, private_stage)):
             _fail("T2B2_PRODUCER_IDENTITY_INVALID", 2)
         if _git("rev-parse", "HEAD") != expected_qsp_commit_sha:
             _fail("T2B2_PRODUCER_IDENTITY_INVALID", 2)
@@ -464,7 +481,7 @@ def capture_tqqq_market_regime_control_present(
             staged_package.write_bytes(package_bytes)
             _readback_package(staged_package, expected_qsp_commit_sha=expected_qsp_commit_sha)
             _readback_package(staged_package, expected_qsp_commit_sha=expected_qsp_commit_sha)
-            _verify_source_identity(expected_qsp_commit_sha)
+            _verify_source_identity(expected_qsp_commit_sha, private_stage=stage)
             shutil.rmtree(stage / "producer-output")
             if (stage / "producer-output").exists():
                 _fail("T2B2_PRODUCER_PUBLISH_FAILED", 4)

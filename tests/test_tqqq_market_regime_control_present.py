@@ -35,6 +35,13 @@ def _identity_error(callable_) -> None:
     assert raised.value.exit_code == 2
 
 
+def _input_error(callable_) -> None:
+    with pytest.raises(PresentError) as raised:
+        callable_()
+    assert raised.value.code == "T2B2_PRODUCER_INPUT_INVALID"
+    assert raised.value.exit_code == 2
+
+
 def _payload(as_of: str) -> bytes:
     value = {
         "as_of": as_of, "audit_summary": {}, "arbiter": {}, "canonical_route": "no_action", "component_signals": {},
@@ -47,9 +54,16 @@ def _payload(as_of: str) -> bytes:
     return json.dumps(value, separators=(",", ":"), sort_keys=True).encode()
 
 
-def _capture_checkout(tmp_path: Path, *, inside_checkout: bool = False) -> tuple[Path, Path, str, Path]:
+def _capture_checkout(
+    tmp_path: Path,
+    *,
+    inside_checkout: bool = False,
+    output_dir: object | None = None,
+    extra_config: str = "",
+) -> tuple[Path, Path, str, Path]:
     checkout = _checkout(tmp_path)
-    output_dir = checkout / "data" / "output" / "packages" if inside_checkout else tmp_path / "external" / "packages"
+    expected_output_dir = checkout / "data" / "output" / "packages" if inside_checkout else tmp_path / "external" / "packages"
+    configured_output_dir = expected_output_dir if output_dir is None else output_dir
     (checkout / "src" / "quant_strategy_plugins").mkdir(parents=True)
     (checkout / "src" / "quant_strategy_plugins" / "tqqq_market_regime_control_present.py").write_text("# tracked\n", encoding="utf-8")
     prices = checkout / "prices.csv"
@@ -57,12 +71,13 @@ def _capture_checkout(tmp_path: Path, *, inside_checkout: bool = False) -> tuple
     config = checkout / "config.toml"
     config.write_text(
         "[[strategy_plugins]]\nstrategy = 'tqqq_growth_income'\nplugin = 'market_regime_control'\nenabled = true\nmode = 'shadow'\n"
-        f"[strategy_plugins.inputs]\nprices = {str(prices)!r}\n[strategy_plugins.outputs]\noutput_dir = {str(output_dir)!r}\n",
+        f"[strategy_plugins.inputs]\nprices = {json.dumps(str(prices))}\n[strategy_plugins.outputs]\n"
+        f"output_dir = {json.dumps(str(configured_output_dir)) if isinstance(configured_output_dir, Path) else json.dumps(configured_output_dir)}\n{extra_config}",
         encoding="utf-8",
     )
     _git("add", ".", cwd=checkout)
     _git("-c", "user.email=t@example.invalid", "-c", "user.name=Test", "commit", "-qm", "capture", cwd=checkout)
-    return checkout, config, _git("rev-parse", "HEAD", cwd=checkout).stdout.strip(), output_dir
+    return checkout, config, _git("rev-parse", "HEAD", cwd=checkout).stdout.strip(), expected_output_dir
 
 
 def _fake_producer(counter: list[int]):
@@ -218,6 +233,43 @@ def test_unrelated_dirt_fails_before_output_admission(tmp_path: Path, monkeypatc
     monkeypatch.setattr(subject, "run_market_regime_control_plugin", _fake_producer(calls))
 
     _identity_error(lambda: _capture(subject, checkout, config, expected, monkeypatch))
+
+    assert calls == []
+    assert not checkout_output.exists()
+
+
+def test_nested_sensitive_config_key_fails_before_producer_or_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import quant_strategy_plugins.tqqq_market_regime_control_present as subject
+
+    sensitive_value = "do-not-package-this"
+    checkout, config, expected, checkout_output = _capture_checkout(
+        tmp_path,
+        extra_config=f"[strategy_plugins.settings.audit]\napi_token = {sensitive_value!r}\n",
+    )
+    calls: list[int] = []
+    monkeypatch.setattr(subject, "run_market_regime_control_plugin", _fake_producer(calls))
+
+    _input_error(lambda: _capture(subject, checkout, config, expected, monkeypatch))
+
+    captured = capsys.readouterr()
+    assert calls == []
+    assert not checkout_output.exists()
+    assert sensitive_value not in captured.out
+    assert sensitive_value not in captured.err
+
+
+def test_non_string_output_dir_fails_as_input_before_side_effects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import quant_strategy_plugins.tqqq_market_regime_control_present as subject
+
+    checkout, config, expected, checkout_output = _capture_checkout(tmp_path, output_dir=7)
+    calls: list[int] = []
+    monkeypatch.setattr(subject, "run_market_regime_control_plugin", _fake_producer(calls))
+
+    _input_error(lambda: _capture(subject, checkout, config, expected, monkeypatch))
 
     assert calls == []
     assert not checkout_output.exists()

@@ -213,6 +213,14 @@ def _sensitive_key(key: object) -> bool:
     return lowered.startswith("ai_audit_") or any(part in lowered for part in SENSITIVE_KEY_PARTS)
 
 
+def _contains_sensitive_key(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return any(_sensitive_key(key) or _contains_sensitive_key(child) for key, child in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_sensitive_key(child) for child in value)
+    return False
+
+
 def _select_config(config_path: Path, as_of: str) -> tuple[dict[str, object], Path, Path | None, str | Path]:
     try:
         document = tomllib.loads(config_path.read_text(encoding="utf-8"))
@@ -233,12 +241,12 @@ def _select_config(config_path: Path, as_of: str) -> tuple[dict[str, object], Pa
     selected = candidates[0]
     if selected.get("enabled") is not True or selected.get("mode", document.get("default_mode")) != "shadow":
         _fail(ERROR_INPUT, 2)
-    if any(_sensitive_key(key) for key in selected):
+    if _contains_sensitive_key(selected):
         _fail(ERROR_INPUT, 2)
     configured_as_of = selected.get("as_of")
     if configured_as_of is not None and configured_as_of != as_of:
         _fail(ERROR_INPUT, 2)
-    if "prices" not in selected or "output_dir" not in selected:
+    if "prices" not in selected or not isinstance(selected.get("output_dir"), str):
         _fail(ERROR_INPUT, 2)
     prices = _regular_csv(selected["prices"])
     external = None if not selected.get("external_context") else _regular_csv(selected["external_context"])

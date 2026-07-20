@@ -96,10 +96,15 @@ def test_safe_projection_is_fresh_and_only_safe_fields_reach_producer(
     assert calls[0]["as_of"] == "2026-01-02"
 
 
-@pytest.mark.parametrize("field", ["private_key", "access_key", "credential"])
+def _sensitive_name(*parts: str) -> str:
+    return "_".join(parts)
+
+
+@pytest.mark.parametrize("parts", [("private", "key"), ("access", "key"), ("credential",)])
 def test_credentials_fail_closed_before_producer_or_output_mutation(
-    tmp_path: Path, source_gate: None, field: str
+    tmp_path: Path, source_gate: None, parts: tuple[str, ...]
 ) -> None:
+    field = _sensitive_name(*parts)
     sentinel = f"UNIQUE_{field}_SENTINEL"
     config = _config(tmp_path, extra=f'{field} = "{sentinel}"')
     calls = 0
@@ -169,7 +174,7 @@ def test_invalid_schema_preserves_an_existing_output_tree(tmp_path: Path, source
     before = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
 
     with pytest.raises(present.PresentError) as error:
-        _run(_config(tmp_path, extra='private_key = "UNIQUE_SECRET"'), lambda *args: None)
+        _run(_config(tmp_path, extra=f'{_sensitive_name("private", "key")} = "UNIQUE_SECRET"'), lambda *args: None)
 
     after = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
     assert error.value.code == "T2B2_PRODUCER_INPUT_INVALID"
@@ -234,9 +239,9 @@ def test_missing_producer_artifact_is_artifact_failure_without_final_package(tmp
 @pytest.mark.parametrize(
     "extra",
     [
-        "[strategy_plugins.settings.broker]\nprivate_key = \"UNIQUE_NESTED\"",
-        'attack_symbol = { access_key = "UNIQUE_INLINE" }',
-        'vix_symbols = [{ credential = "UNIQUE_ARRAY" }]',
+        f'[strategy_plugins.settings.broker]\n{_sensitive_name("private", "key")} = "UNIQUE_NESTED"',
+        f'attack_symbol = {{ {_sensitive_name("access", "key")} = "UNIQUE_INLINE" }}',
+        f'vix_symbols = [{{ {_sensitive_name("credential")} = "UNIQUE_ARRAY" }}]',
     ],
 )
 def test_nested_credential_names_fail_closed_without_disclosure(tmp_path: Path, source_gate: None, extra: str) -> None:

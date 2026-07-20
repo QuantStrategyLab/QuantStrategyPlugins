@@ -1,3 +1,5 @@
+"""T2B2 PRESENT capture CLI is ``python -m quant_strategy_plugins.tqqq_market_regime_control_present``; direct src-file execution is outside the public contract."""
+
 from __future__ import annotations
 
 import base64
@@ -28,6 +30,7 @@ REPOSITORY = "QuantStrategyLab/QuantStrategyPlugins"
 STRATEGY = "tqqq_growth_income"
 PLUGIN = "market_regime_control"
 MODE = "shadow"
+PUBLIC_CLI_INVOCATION = "python -m quant_strategy_plugins.tqqq_market_regime_control_present"
 
 REQUIRED_INPUTS = frozenset(
     {
@@ -263,7 +266,7 @@ def _csv_path(value: object) -> str:
 def _admit_output_root(value: str, root: Path) -> Path:
     lexical = Path(value)
     if not lexical.is_absolute():
-        lexical = Path.cwd() / lexical
+        lexical = root / lexical
     try:
         if lexical.is_symlink():
             _fail(IDENTITY_INVALID, 2)

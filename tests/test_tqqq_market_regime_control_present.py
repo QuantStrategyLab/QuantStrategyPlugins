@@ -302,3 +302,29 @@ def test_ignored_in_checkout_output_root_is_admitted(tmp_path: Path, monkeypatch
 
     assert error.value.code == "T2B2_PRODUCER_ARTIFACT_INVALID"
     assert (tmp_path / "output").is_dir()
+
+
+def _checkout_root(tmp_path: Path) -> Path:
+    subprocess.run(("git", "init", "-q", str(tmp_path)), check=True)
+    (tmp_path / ".gitignore").write_text("output/\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_public_cli_contract_uses_package_module_not_direct_source_file() -> None:
+    assert present.PUBLIC_CLI_INVOCATION == "python -m quant_strategy_plugins.tqqq_market_regime_control_present"
+
+
+def test_relative_output_dir_is_resolved_from_verified_checkout_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _checkout_root(tmp_path)
+    invocation_dir = tmp_path / "other-working-directory"
+    invocation_dir.mkdir()
+    monkeypatch.chdir(invocation_dir)
+
+    assert present._admit_output_root("output/present", root) == root / "output" / "present"
+
+
+def test_trusted_local_output_outside_checkout_remains_admitted(tmp_path: Path) -> None:
+    root = _checkout_root(tmp_path)
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-output"
+
+    assert present._admit_output_root(str(outside), root) == outside.resolve(strict=False)

@@ -450,10 +450,40 @@ def _readback_bundle(directory: Path, config: bytes, raw: bytes, manifest: bytes
         _fail(READBACK_FAILED, 4)
 
 
-def strict_readback_bundle(directory: str | Path, *, expected_manifest: bytes) -> None:
-    """Verify a presented bundle without repairing or modifying it."""
+def strict_readback_bundle(
+    directory: str | Path,
+    *,
+    expected_manifest_sha256: str,
+    expected_commit: str,
+    expected_end_exclusive: str,
+) -> None:
+    """Verify a presented bundle against independently trusted lineage values."""
     path = Path(directory)
-    _readback_bundle(path, CONFIG_BYTES, _read_member(path / "prices.csv"), expected_manifest)
+    if (
+        not isinstance(expected_manifest_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_manifest_sha256)
+        or not isinstance(expected_commit, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", expected_commit)
+    ):
+        _fail(READBACK_FAILED, 4)
+    try:
+        expected_end = _end_exclusive(expected_end_exclusive)
+    except BundleError:
+        _fail(READBACK_FAILED, 4)
+    manifest = _read_member(path / "manifest.json")
+    if _sha256(manifest) != expected_manifest_sha256:
+        _fail(READBACK_FAILED, 4)
+    parsed = parse_manifest(manifest)
+    producer = parsed.get("producer")
+    provider = parsed.get("provider")
+    if (
+        not isinstance(producer, dict)
+        or not isinstance(provider, dict)
+        or producer.get("commit_sha") != expected_commit
+        or provider.get("end_exclusive") != expected_end
+    ):
+        _fail(READBACK_FAILED, 4)
+    _readback_bundle(path, CONFIG_BYTES, _read_member(path / "prices.csv"), manifest)
 
 
 def _cleanup(stage: Path | None) -> None:

@@ -66,6 +66,15 @@ def _build(tmp_path: Path, source_gate: Path, monkeypatch: pytest.MonkeyPatch) -
     return destination, calls
 
 
+def _strict_readback(destination: Path, manifest: bytes, *, commit: str = "a" * 40, end_exclusive: str = "2026-08-01") -> None:
+    bundle.strict_readback_bundle(
+        destination,
+        expected_manifest_sha256=hashlib.sha256(manifest).hexdigest(),
+        expected_commit=commit,
+        expected_end_exclusive=end_exclusive,
+    )
+
+
 def test_projection_is_pure_exact_qqq_session_date_close_bytes() -> None:
     raw = _raw()
 
@@ -135,7 +144,7 @@ def test_build_publishes_exact_three_member_bundle_with_full_lineage(
         "transform_id": bundle.TRANSFORM_ID,
         "transform_version": "1",
     }
-    bundle.strict_readback_bundle(destination, expected_manifest=manifest_bytes)
+    _strict_readback(destination, manifest_bytes)
 
 
 @pytest.mark.parametrize("member", ["prices.csv", "config.toml", "manifest.json"])
@@ -148,7 +157,22 @@ def test_readback_rejects_member_tampering_before_publication(
     path.write_bytes(path.read_bytes() + b"x")
 
     with pytest.raises(bundle.BundleError) as error:
-        bundle.strict_readback_bundle(destination, expected_manifest=expected)
+        _strict_readback(destination, expected)
+    assert error.value.code == bundle.READBACK_FAILED
+
+
+def test_strict_readback_rejects_consistently_self_attested_lineage(
+    tmp_path: Path, source_gate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination, _ = _build(tmp_path, source_gate, monkeypatch)
+    manifest = json.loads((destination / "manifest.json").read_bytes())
+    manifest["producer"]["commit_sha"] = "b" * 40
+    manifest["provider"]["end_exclusive"] = "2026-08-02"
+    self_attested = bundle._canonical_json(manifest)
+    (destination / "manifest.json").write_bytes(self_attested)
+
+    with pytest.raises(bundle.BundleError) as error:
+        _strict_readback(destination, self_attested)
     assert error.value.code == bundle.READBACK_FAILED
 
 

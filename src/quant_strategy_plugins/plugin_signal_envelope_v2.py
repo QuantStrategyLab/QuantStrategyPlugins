@@ -218,10 +218,20 @@ def _normalized_field_name(key: str) -> str:
 
 def _is_forbidden_field(normalized_key: str) -> bool:
     if normalized_key in {
+        "account",
+        "broker",
+        "capital",
+        "consumption_policy",
+        "execution_control",
+        "execution_controls",
         "order",
         "orders",
+        "position_control",
+        "runtime",
         "target_weight",
         "target_weights",
+        "trade",
+        "trades",
         "authorization",
         "automation_approved",
         "ai",
@@ -229,7 +239,24 @@ def _is_forbidden_field(normalized_key: str) -> bool:
     }:
         return True
     return normalized_key.startswith(
-        ("order_", "orders_", "authorization_", "automation_approved_", "ai_", "llm_")
+        (
+            "account_",
+            "authorization_",
+            "automation_approved_",
+            "ai_",
+            "broker_",
+            "capital_",
+            "consumption_policy_",
+            "execution_control_",
+            "execution_controls_",
+            "llm_",
+            "order_",
+            "orders_",
+            "position_control_",
+            "runtime_",
+            "trade_",
+            "trades_",
+        )
     )
 
 

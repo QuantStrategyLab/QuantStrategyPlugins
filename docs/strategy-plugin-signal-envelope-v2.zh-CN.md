@@ -1,6 +1,6 @@
 # 策略插件确定性信号 Envelope V2（仅设计契约）
 
-> 状态：`DESIGN_ONLY_NOT_RUNTIME`  
+> 状态：`DESIGN_ONLY_NOT_RUNTIME`
 > Schema：`qsl.strategy-plugin-signal.v2`
 
 本契约为可历史回测、由策略自行消费的**确定性插件信号**定义最小、可复算的
@@ -14,6 +14,10 @@ JSON envelope。它不是运行时接线：不会读取行情、访问 GCS、调
   信号的隐含输入。
 - 该 envelope 不含、也会拒绝任何 `order`、`target_weight`、`authorization`、
   `automation_approved` 或 `ai_*` / `llm_*` 字段（包括嵌套 payload）。
+- 旧的 policy/action 树同样会在任意嵌套层被拒绝：`position_control`、
+  `consumption_policy`、`execution_control(s)`、`runtime`、`broker`、`account`、
+  `capital`、`trade(s)` 及其前缀变体。`risk_state` 和 `reason_codes` 仍是允许的
+  纯信号事实，不表达仓位、交易或授权。
 - 它不替换现有 market-regime 输出，也不授权任何旧 artifact 被 runtime 消费。
 
 ## 固定 schema

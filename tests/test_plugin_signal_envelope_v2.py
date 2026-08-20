@@ -61,7 +61,27 @@ def test_rejects_forbidden_execution_or_authority_fields(fixture_name: str, mess
         validate_signal_envelope(_load_fixture(fixture_name))
 
 
-@pytest.mark.parametrize("forbidden_key", ["order", "targetWeight", "authorization", "automation_approved", "ai_model", "llm"])
+@pytest.mark.parametrize(
+    "forbidden_key",
+    [
+        "account_id",
+        "authorization",
+        "automation_approved",
+        "ai_model",
+        "broker_route",
+        "capital_limit",
+        "consumption_policy_override",
+        "execution_control",
+        "executionControls",
+        "llm",
+        "order",
+        "position_control",
+        "runtime_flag",
+        "targetWeight",
+        "trade_intent",
+        "trades_batch",
+    ],
+)
 def test_rejects_forbidden_fields_nested_in_payload(forbidden_key: str) -> None:
     envelope = _load_fixture("valid_signal.json")
     payload = deepcopy(envelope["payload"])
@@ -71,6 +91,15 @@ def test_rejects_forbidden_fields_nested_in_payload(forbidden_key: str) -> None:
 
     with pytest.raises(SignalEnvelopeValidationError, match="forbidden"):
         validate_signal_envelope(envelope)
+
+
+def test_allows_risk_state_and_reason_codes_as_signal_facts() -> None:
+    envelope = _load_fixture("valid_signal.json")
+
+    validated = validate_signal_envelope(envelope)
+
+    assert validated["payload"]["signal"]["risk_state"] == "reduced"
+    assert validated["payload"]["reason_codes"] == ["trend_break", "volatility_spike"]
 
 
 @pytest.mark.parametrize(

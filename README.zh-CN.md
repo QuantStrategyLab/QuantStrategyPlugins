@@ -29,6 +29,7 @@ QuantStrategyPlugins 是 QuantStrategyLab 的策略插件包。提供 market-reg
 ## 延伸文档
 
 - [`docs/plugin_lifecycle_policy.zh-CN.md`](docs/plugin_lifecycle_policy.zh-CN.md)
+- [`docs/strategy-plugin-signal-envelope-v2.zh-CN.md`](docs/strategy-plugin-signal-envelope-v2.zh-CN.md)：纯本地、仅设计的确定性信号 envelope；未接入 runtime。
 
 ## 仓库结构
 

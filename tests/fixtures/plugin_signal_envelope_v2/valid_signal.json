@@ -1,0 +1,24 @@
+{
+  "schema_version": "qsl.strategy-plugin-signal.v2",
+  "plugin_id": "dotcom-regime-observer",
+  "kind": "deterministic_signal",
+  "producer": {
+    "repo": "QuantStrategyLab/QuantStrategyPlugins",
+    "revision": "0123456789abcdef0123456789abcdef01234567",
+    "entrypoint": "quant_strategy_plugins.dotcom_regime:build_signal",
+    "code_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "config_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "input": {
+    "p1_manifest_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "input_root_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "date_cutoff": "2000-03-10"
+  },
+  "payload": {
+    "as_of": "2000-03-10",
+    "reason_codes": ["trend_break", "volatility_spike"],
+    "regime": "risk_off",
+    "signal": {"risk_state": "reduced"}
+  },
+  "payload_sha256": "87a77c292b7baef6893cc2c1c92a7405d268a59b61454875e8aafd3f1a603dc9"
+}

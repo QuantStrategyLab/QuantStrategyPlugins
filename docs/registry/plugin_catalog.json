@@ -1,0 +1,12 @@
+{
+  "schema_version": "strategy_plugin_catalog.v1",
+  "inventory_only": true,
+  "source_policy": "Metadata inventory only; do not claim evidence or live authority.",
+  "entries": [
+    {"plugin_id":"crisis_response_shadow","lineage":"market_regime/crisis","owner_strategy":["tqqq_growth_income"],"status":"DEFERRED","position_mutation_allowed":false,"broker_order_allowed":false},
+    {"plugin_id":"macro_risk_governor","lineage":"market_regime/macro","owner_strategy":["tqqq_growth_income"],"status":"DEFERRED","position_mutation_allowed":false,"broker_order_allowed":false},
+    {"plugin_id":"market_regime_control","lineage":"market_regime/unified","owner_strategy":["global_etf_rotation","mega_cap_leader_rotation_top50_balanced","russell_1000_multi_factor_defensive","soxl_soxx_trend_income","tqqq_growth_income"],"status":"DEFERRED","position_mutation_allowed":false,"broker_order_allowed":false},
+    {"plugin_id":"panic_reversal_shadow","lineage":"event_context/panic_reversal","owner_strategy":["tqqq_growth_income"],"status":"DEFERRED","position_mutation_allowed":false,"broker_order_allowed":false},
+    {"plugin_id":"taco_rebound_shadow","lineage":"event_context/taco_rebound","owner_strategy":["tqqq_growth_income"],"status":"DEFERRED","position_mutation_allowed":false,"broker_order_allowed":false}
+  ]
+}

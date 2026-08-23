@@ -23,27 +23,19 @@ permission by accident.
 | `notification_only` | Can notify humans, but cannot control position | none |
 | `shadow_observer` | Can be attached to runtime metadata and audit trails | none |
 | `automation_candidate` | Has enough evidence to be considered for automation | gated |
-| `automation_approved` | Strategy-side automation is allowed when the platform gate also passes | yes |
+| `automation_approved` | Legacy evidence label retained for replay; not direct allocation authority | none |
 | `deprecated_compatibility` | Kept for replay or staged migration only | none |
 
-## Three-Gate Rule
+## V2 Authority Rule
 
-For any plugin-driven capital impact, all three gates must pass:
+Plugin artifacts never carry direct capital authority. They may provide a
+signal, observation, or bounded risk suggestion to an owning strategy
+candidate. That strategy must validate the behavior through its lifecycle and
+submit any target through the central Risk Gate.
 
-1. **Plugin schema gate**
-   - The artifact must match a supported schema version and remain in `shadow`
-     mode for the shared contract.
-2. **Plugin evidence gate**
-   - The plugin must be marked `automation_approved` and
-     `position_control_allowed = true`.
-   - If the platform enables automated position control, the runner should also
-     carry a machine-readable `auditable_position_control` block with
-     `evidence_package_id`, `evidence_valid_until`, and `bounded_budget`.
-3. **Strategy/platform gate**
-   - The consuming strategy must explicitly opt in to the plugin and remain
-     allowed by the platform catalog.
-
-If any gate fails, the plugin should stay notification-only or compatibility-only.
+Legacy v1 `position_control_allowed` and `automation_approved` fields are kept
+readable for historical artifacts, but the runner emits them as
+notification/shadow-only and cannot use them to mutate allocations.
 
 ## Current Policy Shape
 
@@ -59,7 +51,8 @@ If any gate fails, the plugin should stay notification-only or compatibility-onl
 ## Recommended Operating Rules
 
 - Keep `notification_allowed` broad for research visibility.
-- Keep `position_control_allowed` narrow and explicit.
+- Keep `position_control_allowed = false`; strategy-owned adapters consume
+  validated signals through the central Risk Gate.
 - Prefer a single shared policy registry instead of spreading allowlists across
   runners.
 - When a strategy consumes a plugin for live capital impact, keep the platform
@@ -69,7 +62,7 @@ If any gate fails, the plugin should stay notification-only or compatibility-onl
 
 - If the artifact is only for human review, use `notification_only`.
 - If the artifact is still a sidecar evidence layer, use `shadow_observer`.
-- If the plugin is being prepared for automation, keep it in
-  `automation_candidate` until the strategy gate also passes.
+- If plugin behavior is being prepared for automation, promote a new owning
+  strategy candidate; do not promote the plugin into allocation authority.
 - If the plugin is no longer the preferred path, mark it
   `deprecated_compatibility` and keep it out of new runtime defaults.

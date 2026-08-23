@@ -85,21 +85,21 @@
 策略插件 runner 使用显式消费权限 registry，而不是只维护松散 allowlist：
 
 - `notification_allowed`：允许生成和分发通知 artifact。
-- `position_control_allowed`：允许策略 runtime 自动消费仓位控制字段。
+- `position_control_allowed`：旧兼容字段；V2 输出固定为 false，旧仓位控制形状的
+  数据只作为 shadow 元数据。
 - `evidence_status`：记录该策略/插件组合是 `automation_approved`、`notification_only` 还是 `deprecated_compatibility`。
-- 当 `position_control_allowed = true` 时，runner 输出还应暴露机器可读的
-  `auditable_position_control` 块，包含 `evidence_package_id`、
-  `evidence_valid_until` 和 `bounded_budget`。
+- 历史 `auditable_position_control` 证据仍可用于回放，但不授予仓位权限。
 - `since_version`：记录该消费权限从哪个 runner schema 开始生效。
 
 权限边界写在文档和机器字段里，不重复写进人工通知正文：
 
 - 插件仓库只生成 artifact 和通知，不调用券商接口，也不直接改账户配置。
-- 自动仓位影响只发生在策略侧显式消费 `position_control` 时，并且必须同时满足
-  `position_control_allowed = true` 和 `evidence_status = automation_approved`。
+- 自动仓位影响必须由归属策略候选生成并通过中央 Risk Gate；插件 artifact
+  不能直接造成仓位变化。
 - 新增或扩大自动仓位消费范围前，应先通过 25-30 年长周期验证。TQQQ/SOXL 这类实盘产品历史不足的策略，长周期验证必须明确使用
   QQQ/SOXX 等底层资产合成的 3x 日重置代理，并把 synthetic 口径和真实 ETF 口径分开归档。
-- 当前已批准自动消费的策略级消费者只有 TQQQ 增长收益和 SOXL/SOXX 趋势收益。Global ETF、Russell 1000 和 Mega Cap 轮动在各自长周期推广包归档前，只保留通知和证据 artifact；runner artifact 会写入
+- TQQQ 增长收益和 SOXL/SOXX 趋势收益保留历史验证证据，但所有策略挂载现在
+  都只保留通知和证据 artifact；runner artifact 会写入
   `position_control_allowed = false`、`strategy_runtime_metadata_allowed = false`
   和 `capital_impact = notification_only`。
 - 同一个自动化证据可以有偏进攻和偏保守两种策略侧消费偏好；插件只输出确定性字段和证据，具体选用哪个偏好由策略配置决定。

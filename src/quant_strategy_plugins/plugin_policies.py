@@ -9,6 +9,9 @@ EVIDENCE_DEPRECATED_COMPATIBILITY = "deprecated_compatibility"
 PLUGIN_LIFECYCLE_AUTOMATION_APPROVED = "automation_approved"
 PLUGIN_LIFECYCLE_NOTIFICATION_ONLY = "notification_only"
 PLUGIN_LIFECYCLE_DEPRECATED_COMPATIBILITY = "deprecated_compatibility"
+# V1 artifacts retain position-control-shaped fields for deterministic replay,
+# but the V2 sidecar boundary never grants direct allocation authority.
+PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED = False
 
 GENERAL_MARKET_REGIME_NOTIFICATION_TARGET = "market_regime_notification"
 
@@ -79,11 +82,11 @@ class PluginLifecyclePolicy:
 PLUGIN_LIFECYCLE_POLICIES: tuple[PluginLifecyclePolicy, ...] = (
     PluginLifecyclePolicy(
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
-        lifecycle_stage=PLUGIN_LIFECYCLE_AUTOMATION_APPROVED,
+        lifecycle_stage=PLUGIN_LIFECYCLE_NOTIFICATION_ONLY,
         schema_versions=PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL],
         new_mount_allowed=True,
         replay_only=False,
-        description="Unified market-regime sidecar; automated consumption still requires per-strategy policy approval.",
+        description="Unified market-regime sidecar; outputs are notification/shadow metadata for strategy-owned evaluation.",
     ),
     PluginLifecyclePolicy(
         plugin=PLUGIN_PANIC_REVERSAL_SHADOW,
@@ -132,10 +135,10 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
         strategy="tqqq_growth_income",
         notification_allowed=True,
-        position_control_allowed=True,
-        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
-        description="Backtested automatic macro/crisis risk controls for the TQQQ growth-income strategy.",
+        description="Backtested macro/crisis observation for strategy-owned evaluation; no direct position control.",
         manual_review_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     ),
     PluginConsumptionPolicy(
@@ -172,10 +175,10 @@ PLUGIN_CONSUMPTION_POLICIES: tuple[PluginConsumptionPolicy, ...] = (
         plugin=PLUGIN_MARKET_REGIME_CONTROL,
         strategy="soxl_soxx_trend_income",
         notification_allowed=True,
-        position_control_allowed=True,
-        evidence_status=EVIDENCE_AUTOMATION_APPROVED,
+        position_control_allowed=False,
+        evidence_status=EVIDENCE_NOTIFICATION_ONLY,
         since_version="strategy_plugins.v1",
-        description="Backtested automatic macro/crisis risk controls for the SOXL/SOXX trend-income strategy.",
+        description="Backtested macro/crisis observation for strategy-owned evaluation; no direct position control.",
         manual_review_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     ),
     PluginConsumptionPolicy(
@@ -296,6 +299,7 @@ __all__ = [
     "PLUGIN_CONSUMPTION_POLICY_REGISTRY",
     "PLUGIN_CRISIS_RESPONSE_SHADOW",
     "PLUGIN_DEPRECATED_SUCCESSORS",
+    "PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED",
     "PLUGIN_LIFECYCLE_AUTOMATION_APPROVED",
     "PLUGIN_LIFECYCLE_DEPRECATED_COMPATIBILITY",
     "PLUGIN_LIFECYCLE_NOTIFICATION_ONLY",

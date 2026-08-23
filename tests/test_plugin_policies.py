@@ -3,7 +3,7 @@ from __future__ import annotations
 import quant_strategy_plugins.strategy_plugin_runner as strategy_plugin_runner
 from quant_strategy_plugins.plugin_policies import (
     AUDITABLE_POSITION_CONTROL_FIELDS,
-    EVIDENCE_AUTOMATION_APPROVED,
+    EVIDENCE_NOTIFICATION_ONLY,
     GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     PLUGIN_COMPATIBLE_STRATEGIES,
     PLUGIN_CONSUMPTION_POLICY_REGISTRY,
@@ -16,12 +16,12 @@ from quant_strategy_plugins.plugin_policies import (
 )
 
 
-def test_market_regime_control_tqqq_policy_is_automation_approved() -> None:
+def test_market_regime_control_tqqq_policy_is_notification_only() -> None:
     policy = PLUGIN_CONSUMPTION_POLICY_REGISTRY[(PLUGIN_MARKET_REGIME_CONTROL, "tqqq_growth_income")]
 
-    assert policy.evidence_status == EVIDENCE_AUTOMATION_APPROVED
+    assert policy.evidence_status == EVIDENCE_NOTIFICATION_ONLY
     assert policy.notification_allowed is True
-    assert policy.position_control_allowed is True
+    assert policy.position_control_allowed is False
     assert policy.manual_review_notification_target == GENERAL_MARKET_REGIME_NOTIFICATION_TARGET
 
 

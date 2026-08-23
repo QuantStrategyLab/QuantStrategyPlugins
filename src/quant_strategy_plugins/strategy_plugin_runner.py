@@ -59,6 +59,7 @@ from .plugin_policies import (
     PluginLifecyclePolicy,
     PluginNotificationTargetPolicy,
 )
+from .plugin_lineage import build_plugin_lineage
 
 DEFAULT_RUNNER_OUTPUT_DIR = "data/output/strategy_plugins"
 SUPPORTED_PLUGIN_MODES = (SHADOW_MODE,)
@@ -1513,7 +1514,9 @@ def _run_table_strategy_plugin(
     prices_path = str(plugin_config.get("prices", "")).strip()
     if not prices_path:
         raise ValueError(f"{plugin} for strategy={strategy} requires a prices path")
-    payload = spec.build_payload(read_table(prices_path), plugin_config)
+    prices = read_table(prices_path)
+    payload = spec.build_payload(prices, plugin_config)
+    payload["plugin_lineage"] = build_plugin_lineage(plugin, frame=prices, config=plugin_config)
     payload = _apply_plugin_contract(
         payload,
         strategy=strategy,
@@ -1568,7 +1571,9 @@ def _run_table_notification_target_plugin(
     prices_path = str(plugin_config.get("prices", "")).strip()
     if not prices_path:
         raise ValueError(f"{plugin} for notification_target={notification_target} requires a prices path")
-    payload = spec.build_payload(read_table(prices_path), plugin_config)
+    prices = read_table(prices_path)
+    payload = spec.build_payload(prices, plugin_config)
+    payload["plugin_lineage"] = build_plugin_lineage(plugin, frame=prices, config=plugin_config)
     payload = _apply_plugin_contract(
         payload,
         notification_target=notification_target,

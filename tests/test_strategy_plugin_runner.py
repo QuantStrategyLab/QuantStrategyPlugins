@@ -245,6 +245,41 @@ def test_strategy_plugin_runner_executes_strategy_scoped_shadow_plugin(tmp_path)
     assert "无需通知" in payload["localized_messages"]["notification"]["zh-CN"]
     assert payload["log_record"]["schema_version"] == STRATEGY_PLUGIN_LOG_SCHEMA_VERSION
     assert "策略=" in payload["log_record"]["localized_messages"]["zh-CN"]
+    lineage = payload["plugin_lineage"]
+    assert lineage["schema_version"] == "strategy_plugin_lineage.v1"
+    assert lineage["lineage"] == "market_regime/crisis"
+    assert lineage["role"] == "shadow"
+    assert len(lineage["input_digest"]) == 64
+    assert lineage["evidence_expiry_status"] == "not_declared"
+    assert lineage["bounded_budget_status"] == "not_declared"
+    assert lineage["position_mutation_allowed"] is False
+    assert lineage["broker_order_allowed"] is False
+
+
+def test_plugin_lineage_declares_expiry_and_bounded_budget(tmp_path) -> None:
+    prices_path = tmp_path / "lineage_prices.csv"
+    _quiet_prices().to_csv(prices_path, index=False)
+    output_dir = tmp_path / "lineage"
+    config = {
+        "output_dir": str(tmp_path / "runner"),
+        "default_mode": "shadow",
+        "strategy_plugins": [{
+            "strategy": STRATEGY_NAME,
+            "plugin": PLUGIN_CRISIS_RESPONSE_SHADOW,
+            "inputs": {
+                "prices": str(prices_path),
+                "evidence_valid_until": "2026-12-31",
+                "bounded_budget": {"max_runs": 1, "max_seconds": 30},
+            },
+            "outputs": {"output_dir": str(output_dir)},
+        }],
+    }
+    run_configured_plugins(config)
+    lineage = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))["plugin_lineage"]
+    assert lineage["evidence_valid_until"] == "2026-12-31"
+    assert lineage["evidence_expiry_status"] == "declared"
+    assert lineage["bounded_budget"] == {"max_runs": 1, "max_seconds": 30}
+    assert lineage["bounded_budget_status"] == "declared"
 
 
 def test_strategy_plugin_runner_runs_macro_risk_governor_for_tqqq(tmp_path) -> None:

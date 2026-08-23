@@ -44,6 +44,7 @@ from .plugin_policies import (
     PLUGIN_CONSUMPTION_POLICY_REGISTRY,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
     PLUGIN_DEPRECATED_SUCCESSORS,
+    PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED,
     PLUGIN_LIFECYCLE_POLICIES,
     PLUGIN_LIFECYCLE_POLICY_REGISTRY,
     PLUGIN_MACRO_RISK_GOVERNOR,
@@ -1357,7 +1358,11 @@ def _apply_plugin_contract(
     execution_controls["repository_allocation_mutation_allowed"] = False
     if consumption_policy is not None:
         execution_controls["notification_allowed"] = bool(consumption_policy.notification_allowed)
-        execution_controls["position_control_allowed"] = bool(consumption_policy.position_control_allowed)
+        position_control_allowed = bool(
+            PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED
+            and consumption_policy.position_control_allowed
+        )
+        execution_controls["position_control_allowed"] = position_control_allowed
         execution_controls["consumption_evidence_status"] = consumption_policy.evidence_status
         if consumption_policy.manual_review_notification_target:
             delegated_notification_target = consumption_policy.manual_review_notification_target
@@ -1367,7 +1372,7 @@ def _apply_plugin_contract(
                 f"notification_target:{delegated_notification_target}"
             )
             execution_controls["manual_review_notification_authority"] = "plugin_notification_target"
-        if consumption_policy.position_control_allowed:
+        if position_control_allowed:
             execution_controls["capital_impact"] = "strategy_opt_in"
             execution_controls["strategy_runtime_metadata_allowed"] = True
             execution_controls["position_control_shadow_only"] = False

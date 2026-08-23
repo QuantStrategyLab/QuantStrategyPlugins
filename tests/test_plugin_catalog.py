@@ -19,10 +19,10 @@ def test_catalog_is_complete_inventory_and_never_grants_capital_authority() -> N
         assert entry["broker_order_allowed"] is False
 
 
-def test_catalog_keeps_approved_policy_distinct_from_runtime_authority() -> None:
+def test_catalog_closes_legacy_policy_position_authority() -> None:
     entries = {entry["plugin_id"]: entry for entry in build_plugin_catalog()["entries"]}
 
-    # A policy may permit a future strategy-side use, but the inventory itself
-    # never promotes a plugin or supplies a run-specific evidence package.
-    assert entries["market_regime_control"]["policy_position_control_allowed"] is True
+    # V1 policy fields remain readable, but V2 never grants direct position
+    # authority to a sidecar.
+    assert entries["market_regime_control"]["policy_position_control_allowed"] is False
     assert entries["market_regime_control"]["status"] == "DEFERRED"

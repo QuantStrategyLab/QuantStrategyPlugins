@@ -21,24 +21,17 @@
 | `notification_only` | 可以通知人工，但不能控制仓位 | 无 |
 | `shadow_observer` | 可以挂到 runtime metadata 和审计轨迹 | 无 |
 | `automation_candidate` | 证据足够，进入自动化候选 | 受门槛控制 |
-| `automation_approved` | 当平台门槛也通过时，策略侧可自动消费 | 有 |
+| `automation_approved` | 为历史回放保留的旧证据标签，不代表直接仓位权限 | 无 |
 | `deprecated_compatibility` | 仅用于回放或迁移兼容 | 无 |
 
-## 三道门槛
+## V2 权限规则
 
-任何由插件驱动的资金影响，都必须同时通过三道门槛：
+插件 artifact 永远不携带直接资金权限。它只能向归属策略候选提供信号、观察或
+受限风险建议；策略必须通过自己的生命周期验证，并把仓位目标提交中央 Risk Gate。
 
-1. **插件 schema 门槛**
-   - artifact 必须匹配支持的 schema version，并在共享契约中保持 `shadow` 模式。
-2. **插件证据门槛**
-   - 插件必须标记为 `automation_approved`，且 `position_control_allowed = true`。
-   - 如果平台启用自动仓位控制，runner 还应携带机器可读的
-     `auditable_position_control` 块，包含 `evidence_package_id`、
-     `evidence_valid_until` 和 `bounded_budget`。
-3. **策略 / 平台门槛**
-   - 消费策略必须显式 opt-in，并且仍然被平台 catalog 允许。
-
-任意一项失败，插件就应该停留在 notification-only 或兼容模式。
+旧 v1 的 `position_control_allowed` 和 `automation_approved` 字段继续可读，
+方便历史 artifact 回放；但 runner 统一输出为 notification/shadow-only，不能
+借这些字段修改仓位。
 
 ## 当前策略形态
 
@@ -53,7 +46,8 @@
 ## 推荐运行规则
 
 - `notification_allowed` 可以保持宽松，方便研究可见。
-- `position_control_allowed` 必须保持窄而明确。
+- `position_control_allowed` 固定为 `false`；策略侧适配器只通过中央 Risk Gate
+  消费已经验证的信号。
 - 尽量使用统一的 policy registry，不要把 allowlist 分散到多个 runner。
 - 当策略消费插件并产生 live 资金影响时，平台通知路径应与策略执行路径分离。
 
@@ -61,5 +55,5 @@
 
 - 只给人工复核看的 artifact，用 `notification_only`。
 - 仍然只是 sidecar 证据层的 artifact，用 `shadow_observer`。
-- 正在准备自动化的插件，用 `automation_candidate`，直到策略门槛也通过。
+- 如果准备自动消费某个插件行为，应晋级新的归属策略候选，而不是给插件仓位权限。
 - 不再是新默认路径的插件，用 `deprecated_compatibility`，并避免出现在新的 runtime 默认值里。

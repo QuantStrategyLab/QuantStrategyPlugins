@@ -10,7 +10,6 @@ import quant_strategy_plugins.strategy_plugin_runner as strategy_plugin_runner_m
 from quant_strategy_plugins.crisis_response_research import ROUTE_TRUE_CRISIS
 from quant_strategy_plugins.market_regime_control_plugin import build_market_regime_control_signal
 from quant_strategy_plugins.strategy_plugin_runner import (
-    EVIDENCE_AUTOMATION_APPROVED,
     EVIDENCE_NOTIFICATION_ONLY,
     GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     PLUGIN_COMPATIBLE_NOTIFICATION_TARGETS,
@@ -435,12 +434,12 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_tqqq(tmp_
         ]
         == 0.0
     )
-    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
-    assert payload["execution_controls"]["position_control_allowed"] is True
-    assert payload["execution_controls"]["capital_impact"] == "strategy_opt_in"
-    assert payload["execution_controls"]["position_control_shadow_only"] is False
-    assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_AUTOMATION_APPROVED
-    assert payload["consumption_policy"]["position_control_allowed"] is True
+    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
+    assert payload["execution_controls"]["position_control_allowed"] is False
+    assert payload["execution_controls"]["capital_impact"] == "notification_only"
+    assert payload["execution_controls"]["position_control_shadow_only"] is True
+    assert payload["execution_controls"]["consumption_evidence_status"] == EVIDENCE_NOTIFICATION_ONLY
+    assert payload["consumption_policy"]["position_control_allowed"] is False
     assert payload["execution_controls"]["broker_order_allowed"] is False
     assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
     assert payload["localized_messages"]["labels"]["canonical_route"]["en-US"] == "Risk reduced"
@@ -737,19 +736,11 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     assert result["status"] == "ok"
     payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
     assert payload["strategy"] == SOXL_STRATEGY_NAME
-    assert payload["execution_controls"]["position_control_allowed"] is True
-    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is True
-    assert payload["execution_controls"]["capital_impact"] == "strategy_opt_in"
-    assert payload["execution_controls"]["position_control_shadow_only"] is False
-    assert payload["execution_controls"]["auditable_position_control"] == {
-        "evidence_package_id": "pkg_001",
-        "evidence_valid_until": "2026-08-01T00:00:00Z",
-        "bounded_budget": {
-            "name": "position_control",
-            "amount": 0.5,
-            "unit": "fraction",
-        },
-    }
+    assert payload["execution_controls"]["position_control_allowed"] is False
+    assert payload["execution_controls"]["strategy_runtime_metadata_allowed"] is False
+    assert payload["execution_controls"]["capital_impact"] == "notification_only"
+    assert payload["execution_controls"]["position_control_shadow_only"] is True
+    assert "auditable_position_control" not in payload["execution_controls"]
     assert payload["execution_controls"]["manual_review_notification_delegated"] is True
     assert (
         payload["execution_controls"]["manual_review_notification_target"]
@@ -762,7 +753,7 @@ def test_strategy_plugin_runner_runs_unified_market_regime_control_for_soxl(tmp_
     volatility_delever_context = payload["position_control"]["volatility_delever_context"]
     assert volatility_delever_context["actionable_for_position_control"] is True
     assert volatility_delever_context["retention_profiles"]["soxl_step_rebound_0.25_0.50"]["retention_ratio"] == 0.0
-    assert payload["position_control"]["auditable_position_control"] == payload["execution_controls"]["auditable_position_control"]
+    assert "auditable_position_control" not in payload["position_control"]
 
 
 def test_strategy_plugin_runner_marks_pending_strategy_mount_notification_only(tmp_path) -> None:
@@ -884,10 +875,10 @@ def test_strategy_plugin_runner_contract_registry_prefers_unified_plugin() -> No
     ].position_control_allowed is False
     assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
         (PLUGIN_MARKET_REGIME_CONTROL, STRATEGY_NAME)
-    ].position_control_allowed is True
+    ].position_control_allowed is False
     assert PLUGIN_CONSUMPTION_POLICY_REGISTRY[
         (PLUGIN_MARKET_REGIME_CONTROL, SOXL_STRATEGY_NAME)
-    ].position_control_allowed is True
+    ].position_control_allowed is False
     for pending_strategy in (
         "global_etf_rotation",
         "russell_1000_multi_factor_defensive",

@@ -11,6 +11,7 @@ from typing import Any
 from .plugin_lineage import PLUGIN_LINEAGE_REGISTRY
 from .plugin_policies import (
     PLUGIN_COMPATIBLE_STRATEGIES,
+    PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED,
     PLUGIN_LIFECYCLE_POLICY_REGISTRY,
     PLUGIN_CONSUMPTION_POLICY_REGISTRY,
 )
@@ -34,7 +35,10 @@ def build_plugin_catalog() -> dict[str, Any]:
             for (policy_plugin, _), policy in PLUGIN_CONSUMPTION_POLICY_REGISTRY.items()
             if policy_plugin == plugin_id
         ]
-        position_allowed = any(policy.position_control_allowed for policy in policies)
+        position_allowed = bool(
+            PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED
+            and any(policy.position_control_allowed for policy in policies)
+        )
         entries.append(
             {
                 "plugin_id": plugin_id,

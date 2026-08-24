@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["build>=1.2", "pytest>=8", "ruff==0.15.22"]
+test = ["build>=1.2", "pytest>=8", "ruff==0.16.4"]
 
 [project.scripts]
 qsp-build-crisis-response-shadow-signal = "quant_strategy_plugins.crisis_response_shadow_plugin:main"

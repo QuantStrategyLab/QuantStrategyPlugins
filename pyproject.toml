@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["build>=1.2", "pytest>=8", "ruff==0.15.22"]
+test = ["build>=1.2", "pytest>=8", "ruff==0.16.4"]
 
 [project.scripts]
 qsp-build-crisis-response-shadow-signal = "quant_strategy_plugins.crisis_response_shadow_plugin:main"
@@ -40,3 +40,9 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+
+[tool.ruff.lint]
+# Ruff 0.16 expands its default rule set. Keep the established project
+# baseline explicit so a tool upgrade never silently turns style policy into
+# a broad source rewrite.
+select = ["E4", "E7", "E9", "F"]

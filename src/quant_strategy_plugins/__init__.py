@@ -1,5 +1,10 @@
 """Open strategy plugin implementations for QuantStrategyLab runtimes."""
 
+from .benchmark_drawdown_guard import (
+    PROFILE as BENCHMARK_DRAWDOWN_GUARD_PROFILE,
+    SCHEMA_VERSION as BENCHMARK_DRAWDOWN_GUARD_SCHEMA_VERSION,
+    build_benchmark_drawdown_guard_signal,
+)
 from .crisis_response_shadow_plugin import (
     SCHEMA_VERSION as CRISIS_RESPONSE_SHADOW_SCHEMA_VERSION,
     SHADOW_PROFILE as CRISIS_RESPONSE_SHADOW_PROFILE,
@@ -33,6 +38,8 @@ from .taco_rebound_shadow_plugin import (
 )
 
 __all__ = [
+    "BENCHMARK_DRAWDOWN_GUARD_PROFILE",
+    "BENCHMARK_DRAWDOWN_GUARD_SCHEMA_VERSION",
     "CRISIS_RESPONSE_SHADOW_PROFILE",
     "CRISIS_RESPONSE_SHADOW_SCHEMA_VERSION",
     "MACRO_RISK_GOVERNOR_PROFILE",
@@ -43,6 +50,7 @@ __all__ = [
     "PANIC_REVERSAL_SHADOW_SCHEMA_VERSION",
     "TACO_REBOUND_PROFILE",
     "TACO_REBOUND_SHADOW_SCHEMA_VERSION",
+    "build_benchmark_drawdown_guard_signal",
     "build_crisis_response_shadow_signal",
     "build_macro_risk_governor_signal",
     "build_market_regime_control_signal",

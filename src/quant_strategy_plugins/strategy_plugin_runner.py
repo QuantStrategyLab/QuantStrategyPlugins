@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping, Sequence
 import pandas as pd
 
 from .artifacts import write_json
+from .benchmark_drawdown_guard import build_benchmark_drawdown_guard_signal
 from .crisis_response_shadow_plugin import (
     SHADOW_MODE,
     build_crisis_response_shadow_signal,
@@ -1467,6 +1468,33 @@ def _build_macro_risk_governor_payload(price_history: pd.DataFrame, plugin_confi
     )
 
 
+def _build_benchmark_drawdown_guard_payload(
+    price_history: pd.DataFrame, plugin_config: Mapping[str, Any]
+) -> dict[str, Any]:
+    required = (
+        "benchmark_guard_benchmark_symbol",
+        "benchmark_guard_drawdown_lookback_sessions",
+        "benchmark_guard_soft_drawdown_threshold",
+        "benchmark_guard_hard_drawdown_threshold",
+        "benchmark_guard_soft_risk_asset_scalar",
+        "benchmark_guard_hard_risk_asset_scalar",
+        "benchmark_guard_max_price_age_days",
+    )
+    if any(key not in plugin_config for key in required):
+        raise ValueError("benchmark drawdown guard requires an explicit frozen policy")
+    return build_benchmark_drawdown_guard_signal(
+        price_history,
+        benchmark_symbol=plugin_config["benchmark_guard_benchmark_symbol"],
+        as_of=str(plugin_config.get("as_of", "") or "").strip() or None,
+        drawdown_lookback_sessions=plugin_config["benchmark_guard_drawdown_lookback_sessions"],
+        soft_drawdown_threshold=plugin_config["benchmark_guard_soft_drawdown_threshold"],
+        hard_drawdown_threshold=plugin_config["benchmark_guard_hard_drawdown_threshold"],
+        soft_risk_asset_scalar=plugin_config["benchmark_guard_soft_risk_asset_scalar"],
+        hard_risk_asset_scalar=plugin_config["benchmark_guard_hard_risk_asset_scalar"],
+        max_price_age_days=plugin_config["benchmark_guard_max_price_age_days"],
+    )
+
+
 def _build_market_regime_control_payload(price_history: pd.DataFrame, plugin_config: Mapping[str, Any]) -> dict[str, Any]:
     components: dict[str, Mapping[str, Any]] = {}
     if _as_bool(plugin_config.get("crisis_enabled"), default=True):
@@ -1479,6 +1507,10 @@ def _build_market_regime_control_payload(price_history: pd.DataFrame, plugin_con
         panic_config = dict(plugin_config)
         panic_config.setdefault("suppress_when_price_crisis_guard_active", False)
         components["panic_reversal"] = _build_panic_reversal_payload(price_history, panic_config)
+    if _as_bool(plugin_config.get("benchmark_drawdown_guard_enabled"), default=False):
+        components["benchmark_guard"] = _build_benchmark_drawdown_guard_payload(
+            price_history, plugin_config
+        )
     return build_market_regime_control_signal(
         components,
         strategy_policy=str(plugin_config.get("strategy_policy", "levered_growth_income_v1")).strip(),

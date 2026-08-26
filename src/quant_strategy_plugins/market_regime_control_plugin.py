@@ -18,6 +18,7 @@ COMPONENT_CRISIS = "crisis"
 COMPONENT_MACRO = "macro"
 COMPONENT_TACO = "taco"
 COMPONENT_PANIC_REVERSAL = "panic_reversal"
+COMPONENT_BENCHMARK_GUARD = "benchmark_guard"
 
 ROUTE_NO_ACTION = "no_action"
 ROUTE_WATCH = "watch"
@@ -90,6 +91,8 @@ def _component_key(payload: Mapping[str, Any]) -> str | None:
     plugin = _optional_text(payload.get("plugin") or payload.get("profile")).lower()
     if "crisis_response" in plugin:
         return COMPONENT_CRISIS
+    if "benchmark_drawdown_guard" in plugin:
+        return COMPONENT_BENCHMARK_GUARD
     if "macro_risk_governor" in plugin:
         return COMPONENT_MACRO
     if "taco" in plugin:
@@ -108,7 +111,13 @@ def _normalize_component_signals(
             if not isinstance(payload, Mapping):
                 continue
             component = str(key or "").strip().lower()
-            if component in {COMPONENT_CRISIS, COMPONENT_MACRO, COMPONENT_TACO, COMPONENT_PANIC_REVERSAL}:
+            if component in {
+                COMPONENT_CRISIS,
+                COMPONENT_MACRO,
+                COMPONENT_TACO,
+                COMPONENT_PANIC_REVERSAL,
+                COMPONENT_BENCHMARK_GUARD,
+            }:
                 normalized[component] = payload
                 continue
             inferred = _component_key(payload)
@@ -353,11 +362,13 @@ def build_market_regime_control_signal(
     macro = components.get(COMPONENT_MACRO)
     taco = components.get(COMPONENT_TACO)
     panic_reversal = components.get(COMPONENT_PANIC_REVERSAL)
+    benchmark_guard = components.get(COMPONENT_BENCHMARK_GUARD)
 
     crisis_route = _normalized_route(crisis)
     macro_route = _normalized_route(macro)
     taco_route = _normalized_route(taco)
     panic_reversal_route = _normalized_route(panic_reversal)
+    benchmark_guard_route = _normalized_route(benchmark_guard)
     crisis_active = bool(crisis_route in CRISIS_ACTIVE_ROUTES and not _blocked(crisis))
     crisis_watch = bool(
         crisis_route in CRISIS_WATCH_ROUTES
@@ -399,6 +410,7 @@ def build_market_regime_control_signal(
         and not _blocked(panic_reversal)
     )
     blocked = any(_blocked(payload) for payload in components.values())
+    benchmark_guard_blocked = _blocked(benchmark_guard)
 
     final_route = ROUTE_NO_ACTION
     suggested_action = ACTION_NO_ACTION
@@ -416,7 +428,15 @@ def build_market_regime_control_signal(
     vetoed_opportunities: list[dict[str, Any]] = []
     reason_codes: list[str] = []
 
-    if crisis_active:
+    if benchmark_guard_blocked:
+        final_route = ROUTE_BLOCKED
+        suggested_action = ACTION_BLOCKED
+        route_source = COMPONENT_BENCHMARK_GUARD
+        reason_codes.extend(
+            f"benchmark_guard:{code}"
+            for code in _reason_codes(benchmark_guard) or ("blocked",)
+        )
+    elif crisis_active:
         final_route = ROUTE_RISK_OFF
         suggested_action = ACTION_DEFEND
         route_source = COMPONENT_CRISIS
@@ -439,6 +459,26 @@ def build_market_regime_control_signal(
             summary = _opportunity_summary(COMPONENT_PANIC_REVERSAL, panic_reversal, veto)
             if summary:
                 vetoed_opportunities.append(summary)
+    elif benchmark_guard_route == ROUTE_RISK_OFF:
+        final_route = ROUTE_RISK_OFF
+        suggested_action = ACTION_DEFEND
+        route_source = COMPONENT_BENCHMARK_GUARD
+        would_trade_if_enabled = True
+        leverage_scalar = _clamp_ratio(
+            benchmark_guard.get("leverage_scalar") if isinstance(benchmark_guard, Mapping) else None,
+            default=0.0,
+        )
+        risk_asset_scalar = _clamp_ratio(
+            benchmark_guard.get("risk_asset_scalar") if isinstance(benchmark_guard, Mapping) else None,
+            default=0.0,
+        )
+        risk_budget_scalar = risk_asset_scalar
+        crisis_defense_required = risk_asset_scalar == 0.0
+        blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto", "panic_reversal_veto")
+        reason_codes.extend(
+            f"benchmark_guard:{code}"
+            for code in _reason_codes(benchmark_guard) or ("benchmark_drawdown_hard",)
+        )
     elif macro_active and macro_route == "crisis":
         final_route = ROUTE_RISK_OFF
         suggested_action = ACTION_DEFEND
@@ -461,6 +501,25 @@ def build_market_regime_control_signal(
             summary = _opportunity_summary(COMPONENT_PANIC_REVERSAL, panic_reversal, veto)
             if summary:
                 vetoed_opportunities.append(summary)
+    elif benchmark_guard_route == ROUTE_RISK_REDUCED:
+        final_route = ROUTE_RISK_REDUCED
+        suggested_action = ACTION_DELEVER
+        route_source = COMPONENT_BENCHMARK_GUARD
+        would_trade_if_enabled = True
+        leverage_scalar = _clamp_ratio(
+            benchmark_guard.get("leverage_scalar") if isinstance(benchmark_guard, Mapping) else None,
+            default=1.0,
+        )
+        risk_asset_scalar = _clamp_ratio(
+            benchmark_guard.get("risk_asset_scalar") if isinstance(benchmark_guard, Mapping) else None,
+            default=1.0,
+        )
+        risk_budget_scalar = risk_asset_scalar
+        blocked_actions = ("increase_leverage", "taco_rebound_veto", "panic_reversal_veto")
+        reason_codes.extend(
+            f"benchmark_guard:{code}"
+            for code in _reason_codes(benchmark_guard) or ("benchmark_drawdown_soft",)
+        )
     elif macro_active:
         final_route = ROUTE_RISK_REDUCED
         suggested_action = ACTION_DELEVER
@@ -579,6 +638,7 @@ def build_market_regime_control_signal(
             COMPONENT_MACRO: _compact_signal(macro),
             COMPONENT_TACO: _compact_signal(taco),
             COMPONENT_PANIC_REVERSAL: _compact_signal(panic_reversal),
+            COMPONENT_BENCHMARK_GUARD: _compact_signal(benchmark_guard),
         },
         "execution_controls": {
             "capital_impact": "strategy_opt_in",

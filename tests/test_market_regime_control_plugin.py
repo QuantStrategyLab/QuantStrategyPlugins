@@ -89,6 +89,28 @@ def test_market_regime_control_macro_delever_blocks_taco_veto() -> None:
     assert "macro:vix_crisis_level" in payload["position_control"]["reason_codes"]
 
 
+def test_market_regime_control_applies_the_generic_benchmark_guard_to_all_risk_assets() -> None:
+    payload = build_market_regime_control_signal(
+        {
+            "benchmark_guard": {
+                "profile": "benchmark_drawdown_guard",
+                "as_of": "2026-08-25",
+                "canonical_route": "risk_reduced",
+                "suggested_action": "delever",
+                "leverage_scalar": 0.5,
+                "risk_asset_scalar": 0.5,
+                "reason_codes": ["benchmark_drawdown_soft"],
+            },
+        }
+    )
+
+    assert payload["canonical_route"] == "risk_reduced"
+    assert payload["position_control"]["route_source"] == "benchmark_guard"
+    assert payload["position_control"]["leverage_scalar"] == 0.5
+    assert payload["position_control"]["risk_asset_scalar"] == 0.5
+    assert payload["component_signals"]["benchmark_guard"]["available"] is True
+
+
 def test_market_regime_control_taco_is_notification_with_local_veto_only() -> None:
     payload = build_market_regime_control_signal(
         {

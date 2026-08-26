@@ -432,6 +432,15 @@ def build_market_regime_control_signal(
         final_route = ROUTE_BLOCKED
         suggested_action = ACTION_BLOCKED
         route_source = COMPONENT_BENCHMARK_GUARD
+        # The generic guard owns a hard fail-closed data contract.  Keep this
+        # output shadow-only, but expose zero scalars and a defense requirement
+        # so a separately approved strategy consumer cannot accidentally treat
+        # absent/stale benchmark data as permission to retain risk.
+        risk_budget_scalar = 0.0
+        leverage_scalar = 0.0
+        risk_asset_scalar = 0.0
+        crisis_defense_required = True
+        blocked_actions = ("increase_leverage", "increase_risk", "taco_rebound_veto", "panic_reversal_veto")
         reason_codes.extend(
             f"benchmark_guard:{code}"
             for code in _reason_codes(benchmark_guard) or ("blocked",)

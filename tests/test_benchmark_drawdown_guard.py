@@ -114,3 +114,30 @@ def test_unified_market_regime_requires_an_explicit_policy_to_mount_the_guard() 
     assert payload["position_control"]["risk_asset_scalar"] == 0.5
     with pytest.raises(ValueError, match="explicit frozen policy"):
         _build_market_regime_control_payload(_prices([100.0] * 30), {"benchmark_drawdown_guard_enabled": True})
+
+
+def test_unified_market_regime_preserves_fail_closed_scalars_when_guard_data_is_unavailable() -> None:
+    config = {
+        "crisis_enabled": False,
+        "macro_enabled": False,
+        "taco_enabled": False,
+        "panic_reversal_enabled": False,
+        "benchmark_drawdown_guard_enabled": True,
+        "benchmark_guard_benchmark_symbol": "QQQ",
+        "benchmark_guard_drawdown_lookback_sessions": 20,
+        "benchmark_guard_soft_drawdown_threshold": -0.05,
+        "benchmark_guard_hard_drawdown_threshold": -0.10,
+        "benchmark_guard_soft_risk_asset_scalar": 0.50,
+        "benchmark_guard_hard_risk_asset_scalar": 0.0,
+        "benchmark_guard_max_price_age_days": 3,
+        "as_of": "2026-02-12",
+    }
+
+    payload = _build_market_regime_control_payload(pd.DataFrame(), config)
+
+    assert payload["canonical_route"] == ROUTE_BLOCKED
+    assert payload["position_control"]["risk_budget_scalar"] == 0.0
+    assert payload["position_control"]["leverage_scalar"] == 0.0
+    assert payload["position_control"]["risk_asset_scalar"] == 0.0
+    assert payload["position_control"]["crisis_defense_required"] is True
+    assert payload["execution_controls"]["broker_order_allowed"] is False

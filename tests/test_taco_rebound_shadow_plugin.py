@@ -66,7 +66,8 @@ def test_taco_rebound_shadow_routes_geopolitical_deescalation_to_manual_review_n
     assert payload["event_quality"]["checks"]["rebound_confirmation_satisfied"] is True
 
 
-def test_taco_rebound_shadow_ai_audit_uses_fallback_without_changing_route() -> None:
+def test_taco_rebound_shadow_ai_audit_uses_gateway_fallback_without_changing_route(monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
     prices = _panic_rebound_prices()
     dates = pd.bdate_range("2026-03-20", periods=12)
     event = TradeWarEvent(
@@ -97,6 +98,7 @@ def test_taco_rebound_shadow_ai_audit_uses_fallback_without_changing_route() -> 
             "human_review_recommended": True,
         }
 
+    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_taco_rebound_shadow_signal(
         prices,
         events=(event,),
@@ -111,7 +113,6 @@ def test_taco_rebound_shadow_ai_audit_uses_fallback_without_changing_route() -> 
         ai_audit_fallback_model="fallback-model",
         ai_audit_codex_enabled=False,
         ai_audit_timeout_seconds=6.0,
-        ai_audit_completion_client=fake_completion,
     )
 
     assert payload["canonical_route"] == ROUTE_TACO_REBOUND
@@ -130,7 +131,7 @@ def test_taco_rebound_shadow_ai_audit_uses_fallback_without_changing_route() -> 
     assert audit["attempts"][1]["status"] == "ok"
 
 
-def test_taco_rebound_shadow_ai_audit_skips_without_api_key(monkeypatch) -> None:
+def test_taco_rebound_shadow_ai_audit_skips_without_gateway(monkeypatch) -> None:
     for key in (
         "QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY",
         "QSP_CRISIS_AI_AUDIT_API_KEY",
@@ -141,6 +142,7 @@ def test_taco_rebound_shadow_ai_audit_skips_without_api_key(monkeypatch) -> None
         "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
         "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
         "ANTHROPIC_API_KEY",
+        "CODEX_AUDIT_SERVICE_URL",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -167,7 +169,7 @@ def test_taco_rebound_shadow_ai_audit_skips_without_api_key(monkeypatch) -> None
 
     assert payload["canonical_route"] == ROUTE_TACO_REBOUND
     assert payload["ai_audit"]["status"] == "skipped"
-    assert payload["ai_audit"]["skip_reason"] == "missing_api_endpoint"
+    assert payload["ai_audit"]["skip_reason"] == "gateway_unavailable"
     assert payload["ai_audit"]["final_route_unchanged"] is True
 
 

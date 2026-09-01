@@ -948,6 +948,7 @@ def test_strategy_plugin_runner_can_enable_ai_audit_without_api_key(tmp_path, mo
         "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
         "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
         "ANTHROPIC_API_KEY",
+        "CODEX_AUDIT_SERVICE_URL",
     ):
         monkeypatch.delenv(key, raising=False)
     config = _shadow_plugin_config(tmp_path)
@@ -961,7 +962,7 @@ def test_strategy_plugin_runner_can_enable_ai_audit_without_api_key(tmp_path, mo
     payload = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
     assert payload["canonical_route"] == "no_action"
     assert payload["ai_audit"]["status"] == "skipped"
-    assert payload["ai_audit"]["skip_reason"] == "missing_api_endpoint"
+    assert payload["ai_audit"]["skip_reason"] == "gateway_unavailable"
     assert payload["execution_controls"]["ai_audit_shadow_only"] is True
 
 
@@ -1110,6 +1111,7 @@ def test_strategy_plugin_runner_can_enable_taco_ai_audit_without_api_key(tmp_pat
         "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
         "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
         "ANTHROPIC_API_KEY",
+        "CODEX_AUDIT_SERVICE_URL",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -1144,7 +1146,7 @@ def test_strategy_plugin_runner_can_enable_taco_ai_audit_without_api_key(tmp_pat
     latest = json.loads((output_dir / "latest_signal.json").read_text(encoding="utf-8"))
     assert latest["canonical_route"] == "taco_rebound"
     assert latest["ai_audit"]["status"] == "skipped"
-    assert latest["ai_audit"]["skip_reason"] == "missing_api_endpoint"
+    assert latest["ai_audit"]["skip_reason"] == "gateway_unavailable"
     assert latest["execution_controls"]["ai_audit_shadow_only"] is True
 
 

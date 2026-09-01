@@ -4,14 +4,8 @@ import json
 import logging
 import os
 import re
-import subprocess
-import tempfile
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 _logger = logging.getLogger(__name__)
@@ -28,8 +22,6 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_AI_AUDIT_TIMEOUT_SECONDS = 15.0
 AI_AUDIT_SCHEMA_VERSION = "strategy_plugin_ai_audit.v1"
-DEFAULT_MAX_RETRIES = 2
-DEFAULT_BACKOFF_BASE_SECONDS = 1.0
 SANITIZE_MAX_FIELD_LENGTH = 2000
 
 # Patterns that may appear in upstream error responses and must be scrubbed.
@@ -139,38 +131,6 @@ def _scrub_api_key_from_text(text: str) -> str:
             text,
         )
     return text
-
-
-def _should_retry(status_code: int | None) -> bool:
-    return status_code is not None and (status_code == 429 or status_code >= 500)
-
-
-def _retry_with_backoff(
-    fn: Callable[[], str],
-    *,
-    max_retries: int = DEFAULT_MAX_RETRIES,
-    base_seconds: float = DEFAULT_BACKOFF_BASE_SECONDS,
-) -> str:
-    """Call *fn* with exponential backoff on retriable HTTP errors."""
-    last_exc: Exception | None = None
-    for attempt in range(max_retries + 1):
-        try:
-            return fn()
-        except AiAuditError as exc:
-            last_exc = exc
-            cause = exc.__cause__
-            status = None
-            if isinstance(cause, urllib.error.HTTPError):
-                status = cause.code
-            if not _should_retry(status) or attempt >= max_retries:
-                raise
-            wait = base_seconds * (2 ** attempt)
-            _logger.warning(
-                "ai_audit attempt %d/%d failed with status %s; retrying in %.1fs",
-                attempt + 1, max_retries + 1, status, wait,
-            )
-            time.sleep(wait)
-    raise last_exc  # type: ignore[misc]
 
 
 def build_ai_audit_endpoints(
@@ -327,132 +287,18 @@ def build_ai_audit_endpoints(
             ).normalized()
         )
 
+    if os.environ.get("CODEX_AUDIT_SERVICE_URL", "").strip() and not endpoints:
+        endpoints.append(
+            AiAuditEndpoint(
+                name="primary",
+                api_key="",
+                provider=PROVIDER_OPENAI,
+                base_url="gateway",
+                model=primary_model or DEFAULT_AI_AUDIT_MODEL,
+            ).normalized()
+        )
+
     return tuple(endpoints)
-
-
-def _chat_completions_url(base_url: str) -> str:
-    url = str(base_url or DEFAULT_AI_AUDIT_BASE_URL).strip().rstrip("/")
-    if url.endswith("/chat/completions"):
-        return url
-    return f"{url}/chat/completions"
-
-
-def _openai_compatible_chat_completion(
-    endpoint: AiAuditEndpoint,
-    messages: Sequence[Mapping[str, str]],
-    timeout_seconds: float,
-) -> str:
-    endpoint = endpoint.normalized()
-    body = json.dumps(
-        {
-            "model": endpoint.model,
-            "messages": list(messages),
-            "temperature": 0,
-            "max_tokens": 700,
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        _chat_completions_url(endpoint.base_url),
-        data=body,
-        headers={
-            "Authorization": f"Bearer {endpoint.api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    def _call() -> str:
-        try:
-            with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
-                response_body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:500]
-            detail = _scrub_api_key_from_text(detail)
-            raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            raise AiAuditError(f"network or encoding error: {_scrub_api_key_from_text(str(exc))}") from exc
-
-        payload = json.loads(response_body)
-        choices = payload.get("choices") if isinstance(payload, Mapping) else None
-        if not choices:
-            raise AiAuditError("empty completion choices")
-        first = choices[0]
-        if not isinstance(first, Mapping):
-            raise AiAuditError("invalid completion choice")
-        message = first.get("message")
-        if isinstance(message, Mapping):
-            content = message.get("content")
-        else:
-            content = first.get("text")
-        text = str(content or "").strip()
-        if not text:
-            raise AiAuditError("empty completion content")
-        return text
-
-    return _retry_with_backoff(_call)
-
-
-def _anthropic_messages_url(base_url: str) -> str:
-    url = str(base_url or DEFAULT_ANTHROPIC_BASE_URL).strip().rstrip("/")
-    if url.endswith("/messages"):
-        return url
-    return f"{url}/messages"
-
-
-def _anthropic_messages_completion(
-    endpoint: AiAuditEndpoint,
-    messages: Sequence[Mapping[str, str]],
-    timeout_seconds: float,
-) -> str:
-    endpoint = endpoint.normalized()
-    system_parts = [str(message.get("content") or "") for message in messages if message.get("role") == "system"]
-    user_messages = [
-        {"role": str(message.get("role") or "user"), "content": str(message.get("content") or "")}
-        for message in messages
-        if message.get("role") != "system"
-    ]
-    body = json.dumps(
-        {
-            "model": endpoint.model,
-            "max_tokens": 700,
-            "system": "\n\n".join(part for part in system_parts if part.strip()),
-            "messages": user_messages,
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        _anthropic_messages_url(endpoint.base_url),
-        data=body,
-        headers={
-            "x-api-key": endpoint.api_key,
-            "anthropic-version": endpoint.api_version or DEFAULT_ANTHROPIC_VERSION,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    def _call() -> str:
-        try:
-            with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
-                response_body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:500]
-            detail = _scrub_api_key_from_text(detail)
-            raise AiAuditError(f"HTTP {exc.code}: {detail}") from exc
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            raise AiAuditError(f"network or encoding error: {_scrub_api_key_from_text(str(exc))}") from exc
-
-        payload = json.loads(response_body)
-        content = payload.get("content") if isinstance(payload, Mapping) else None
-        if not isinstance(content, Sequence) or isinstance(content, (str, bytes, bytearray)):
-            raise AiAuditError("Anthropic response did not include content")
-        text_parts = [
-            str(block.get("text") or "").strip()
-            for block in content
-            if isinstance(block, Mapping) and block.get("type") == "text" and str(block.get("text") or "").strip()
-        ]
-        if not text_parts:
-            raise AiAuditError("Anthropic response did not include text content")
-        return "\n\n".join(text_parts)
-
-    return _retry_with_backoff(_call)
 
 
 def _complete_with_endpoint(
@@ -462,24 +308,17 @@ def _complete_with_endpoint(
 ) -> str:
     endpoint = endpoint.normalized()
 
-    # Route through AiGateway when CODEX_AUDIT_SERVICE_URL is configured.
     # API keys live on the VPS — no keys in plugin config needed.
     gateway_url = os.environ.get("CODEX_AUDIT_SERVICE_URL", "").strip()
-    if gateway_url:
-        prompt = "\n\n".join(
-            f"{str(m.get('role') or 'user').upper()}:\n{str(m.get('content') or '').strip()}"
-            for m in messages if str(m.get("content") or "").strip()
-        )
-        if endpoint.provider == PROVIDER_CODEX:
-            return _codex_via_gateway(prompt, endpoint.model, timeout_seconds)
-        return _llm_via_gateway(prompt, endpoint.model, endpoint.provider, timeout_seconds)
-
-    # Fallback: direct API / subprocess calls
+    if not gateway_url:
+        raise AiAuditError("ai_gateway_unavailable")
+    prompt = "\n\n".join(
+        f"{str(m.get('role') or 'user').upper()}:\n{str(m.get('content') or '').strip()}"
+        for m in messages if str(m.get("content") or "").strip()
+    )
     if endpoint.provider == PROVIDER_CODEX:
-        return _codex_exec_completion(endpoint, messages, timeout_seconds)
-    if endpoint.provider == PROVIDER_ANTHROPIC:
-        return _anthropic_messages_completion(endpoint, messages, timeout_seconds)
-    return _openai_compatible_chat_completion(endpoint, messages, timeout_seconds)
+        return _codex_via_gateway(prompt, endpoint.model, timeout_seconds)
+    return _llm_via_gateway(prompt, endpoint.model, endpoint.provider, timeout_seconds)
 
 
 def _codex_via_gateway(prompt: str, model: str, timeout_seconds: float) -> str:
@@ -489,17 +328,15 @@ def _codex_via_gateway(prompt: str, model: str, timeout_seconds: float) -> str:
         config = GatewayConfig.from_env()
         client = AiGatewayClient(config)
         result = client.execute(prompt, mode="review_only", model=model, timeout=timeout_seconds)
-        if result.success:
-            return result.output
-        raise AiAuditError(result.error)
+        if result.success and str(result.output or "").strip():
+            return str(result.output)
+        raise AiAuditError("ai_gateway_rejected")
     except ImportError:
-        return _codex_exec_direct(prompt, timeout_seconds)
-    except Exception as exc:
-        _logger.warning(
-            "ai_audit gateway codex call failed: %s; falling back to direct",
-            _scrub_api_key_from_text(str(exc)),
-        )
-        return _codex_exec_direct(prompt, timeout_seconds)
+        raise AiAuditError("ai_gateway_client_unavailable") from None
+    except AiAuditError:
+        raise
+    except Exception:
+        raise AiAuditError("ai_gateway_request_failed") from None
 
 
 def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: float) -> str:
@@ -509,63 +346,28 @@ def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: fl
         config = GatewayConfig.from_env()
         client = AiGatewayClient(config)
         result = client.analyze(prompt, model=model, timeout=timeout_seconds)
-        if result.success:
-            return result.output
-        raise AiAuditError(result.error)
+        actual_provider = str(getattr(result, "provider", "") or "").strip().lower()
+        if actual_provider != provider:
+            raise AiAuditError("ai_gateway_provider_mismatch")
+        if result.success and str(result.output or "").strip():
+            return str(result.output)
+        raise AiAuditError("ai_gateway_rejected")
     except ImportError:
-        return _llm_direct(prompt, model, provider, timeout_seconds)
-    except Exception as exc:
-        _logger.warning(
-            "ai_audit gateway analyze call failed: %s; falling back to direct",
-            _scrub_api_key_from_text(str(exc)),
-        )
-        return _llm_direct(prompt, model, provider, timeout_seconds)
+        raise AiAuditError("ai_gateway_client_unavailable") from None
+    except AiAuditError:
+        raise
+    except Exception:
+        raise AiAuditError("ai_gateway_request_failed") from None
 
 
 def _llm_direct(prompt: str, model: str, provider: str, timeout_seconds: float) -> str:
-    """Direct API call fallback when gateway is unavailable."""
-    endpoint = AiAuditEndpoint(
-        name="fallback", api_key="", provider=provider,
-        base_url="", model=model,
-    ).normalized()
-    messages: tuple[Mapping[str, str], ...] = ({"role": "user", "content": prompt},)
-    if provider == PROVIDER_ANTHROPIC:
-        return _anthropic_messages_completion(endpoint, messages, timeout_seconds)
-    return _openai_compatible_chat_completion(endpoint, messages, timeout_seconds)
+    del prompt, model, provider, timeout_seconds
+    raise AiAuditError("direct_ai_completion_forbidden")
 
 
 def _codex_exec_direct(prompt: str, timeout_seconds: float) -> str:
-    """Direct codex exec fallback when gateway is unavailable."""
-    with tempfile.TemporaryDirectory(prefix="qsp-ai-audit-") as temp_dir:
-        output_path = Path(temp_dir) / "codex-final-message.md"
-        command = ["codex", "exec", "--cd", temp_dir, "--output-last-message", str(output_path), "-"]
-        try:
-            result = subprocess.run(
-                command, input=prompt, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                timeout=float(timeout_seconds), check=False, env=_scrubbed_codex_env(),
-            )
-        except FileNotFoundError as exc:
-            raise AiAuditError("codex command was not found") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise AiAuditError(f"codex command timed out after {timeout_seconds:g}s") from exc
-        if result.returncode != 0:
-            detail = _bounded_text(result.stdout or "", limit=300)
-            raise AiAuditError(f"codex command failed with exit code {result.returncode}: {detail}")
-        text = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
-        if not text:
-            text = str(result.stdout or "").strip()
-        if not text:
-            raise AiAuditError("codex command returned empty output")
-        return text
-
-
-def _scrubbed_codex_env() -> dict[str, str]:
-    secret_markers = ("TOKEN", "SECRET", "PASSWORD", "PRIVATE_KEY", "CREDENTIAL", "API_KEY")
-    return {
-        key: value
-        for key, value in os.environ.items()
-        if not any(marker in key.upper() for marker in secret_markers)
-    }
+    del prompt, timeout_seconds
+    raise AiAuditError("direct_ai_completion_forbidden")
 
 
 def _codex_exec_completion(
@@ -573,47 +375,8 @@ def _codex_exec_completion(
     messages: Sequence[Mapping[str, str]],
     timeout_seconds: float,
 ) -> str:
-    del endpoint
-    prompt = "\n\n".join(
-        f"{str(message.get('role') or 'user').upper()}:\n{str(message.get('content') or '').strip()}"
-        for message in messages
-        if str(message.get("content") or "").strip()
-    )
-    with tempfile.TemporaryDirectory(prefix="qsp-ai-audit-") as temp_dir:
-        output_path = Path(temp_dir) / "codex-final-message.md"
-        command = [
-            "codex",
-            "exec",
-            "--cd",
-            temp_dir,
-            "--output-last-message",
-            str(output_path),
-            "-",
-        ]
-        try:
-            result = subprocess.run(
-                command,
-                input=prompt,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=float(timeout_seconds),
-                check=False,
-                env=_scrubbed_codex_env(),
-            )
-        except FileNotFoundError as exc:
-            raise AiAuditError("codex command was not found") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise AiAuditError(f"codex command timed out after {timeout_seconds:g}s") from exc
-        if result.returncode != 0:
-            detail = _bounded_text(result.stdout or "", limit=300)
-            raise AiAuditError(f"codex command failed with exit code {result.returncode}: {detail}")
-        text = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
-        if not text:
-            text = str(result.stdout or "").strip()
-        if not text:
-            raise AiAuditError("codex command returned empty output")
-        return text
+    del endpoint, messages, timeout_seconds
+    raise AiAuditError("direct_ai_completion_forbidden")
 
 
 def _extract_json_object(value: str | Mapping[str, Any]) -> dict[str, Any]:
@@ -893,6 +656,20 @@ def _run_ai_audit(
             "notification_profile": "shadow_only",
         },
     }
+    if not os.environ.get("CODEX_AUDIT_SERVICE_URL", "").strip():
+        return {
+            **base_payload,
+            "status": "skipped",
+            "skip_reason": "gateway_unavailable",
+            "attempts": [],
+        }
+    if completion_client is not None:
+        return {
+            **base_payload,
+            "status": "skipped",
+            "skip_reason": "custom_completion_client_forbidden",
+            "attempts": [],
+        }
     if not endpoints:
         return {
             **base_payload,
@@ -901,11 +678,10 @@ def _run_ai_audit(
             "attempts": [],
         }
 
-    client = completion_client or _complete_with_endpoint
     attempts: list[dict[str, Any]] = []
     for endpoint in endpoints:
         try:
-            raw_response = client(endpoint, messages, float(timeout_seconds))
+            raw_response = _complete_with_endpoint(endpoint, messages, float(timeout_seconds))
             audit_response = _normalize_ai_audit_response(_extract_json_object(raw_response))
             attempts.append({**endpoint.report(), "status": "ok"})
 

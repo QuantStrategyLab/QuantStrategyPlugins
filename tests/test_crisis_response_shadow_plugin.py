@@ -84,7 +84,8 @@ def test_shadow_signal_routes_financial_credit_crisis_without_live_execution() -
     assert "ai_audit" not in payload
 
 
-def test_shadow_signal_ai_audit_uses_fallback_without_changing_route() -> None:
+def test_shadow_signal_ai_audit_uses_gateway_fallback_without_changing_route(monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
     prices = _financial_crisis_prices()
     as_of = str(pd.to_datetime(prices["as_of"]).max().date())
     calls: list[str] = []
@@ -105,6 +106,7 @@ def test_shadow_signal_ai_audit_uses_fallback_without_changing_route() -> None:
             "human_review_recommended": False,
         }
 
+    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_crisis_response_shadow_signal(
         prices,
         events=(),
@@ -122,7 +124,6 @@ def test_shadow_signal_ai_audit_uses_fallback_without_changing_route() -> None:
         ai_audit_fallback_model="fallback-model",
         ai_audit_codex_enabled=False,
         ai_audit_timeout_seconds=7.0,
-        ai_audit_completion_client=fake_completion,
     )
 
     assert payload["canonical_route"] == ROUTE_TRUE_CRISIS
@@ -140,7 +141,8 @@ def test_shadow_signal_ai_audit_uses_fallback_without_changing_route() -> None:
     assert audit["attempts"][1]["status"] == "ok"
 
 
-def test_shadow_signal_ai_audit_uses_anthropic_provider_fallback() -> None:
+def test_shadow_signal_ai_audit_uses_gateway_anthropic_fallback(monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
     prices = _financial_crisis_prices()
     as_of = str(pd.to_datetime(prices["as_of"]).max().date())
     calls: list[tuple[str, str]] = []
@@ -159,6 +161,7 @@ def test_shadow_signal_ai_audit_uses_anthropic_provider_fallback() -> None:
             "human_review_recommended": True,
         }
 
+    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_crisis_response_shadow_signal(
         prices,
         events=(),
@@ -174,7 +177,6 @@ def test_shadow_signal_ai_audit_uses_anthropic_provider_fallback() -> None:
         ai_audit_anthropic_api_key="sk-ant",
         ai_audit_anthropic_model="anthropic-model",
         ai_audit_anthropic_version="2023-06-01",
-        ai_audit_completion_client=fake_completion,
     )
 
     audit = payload["ai_audit"]
@@ -187,7 +189,7 @@ def test_shadow_signal_ai_audit_uses_anthropic_provider_fallback() -> None:
     assert audit["final_route_unchanged"] is True
 
 
-def test_shadow_signal_ai_audit_skips_without_api_key(monkeypatch) -> None:
+def test_shadow_signal_ai_audit_skips_without_gateway(monkeypatch) -> None:
     for key in (
         "QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY",
         "QSP_CRISIS_AI_AUDIT_API_KEY",
@@ -198,6 +200,7 @@ def test_shadow_signal_ai_audit_skips_without_api_key(monkeypatch) -> None:
         "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
         "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
         "ANTHROPIC_API_KEY",
+        "CODEX_AUDIT_SERVICE_URL",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -217,11 +220,12 @@ def test_shadow_signal_ai_audit_skips_without_api_key(monkeypatch) -> None:
 
     assert payload["canonical_route"] == ROUTE_TRUE_CRISIS
     assert payload["ai_audit"]["status"] == "skipped"
-    assert payload["ai_audit"]["skip_reason"] == "missing_api_endpoint"
+    assert payload["ai_audit"]["skip_reason"] == "gateway_unavailable"
     assert payload["ai_audit"]["final_route_unchanged"] is True
 
 
-def test_shadow_signal_ai_audit_prefers_codex_provider() -> None:
+def test_shadow_signal_ai_audit_prefers_gateway_codex_provider(monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
     prices = _financial_crisis_prices()
     as_of = str(pd.to_datetime(prices["as_of"]).max().date())
     calls: list[tuple[str, str]] = []
@@ -238,6 +242,7 @@ def test_shadow_signal_ai_audit_prefers_codex_provider() -> None:
             "human_review_recommended": False,
         }
 
+    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_crisis_response_shadow_signal(
         prices,
         events=(),
@@ -248,7 +253,6 @@ def test_shadow_signal_ai_audit_prefers_codex_provider() -> None:
         rate_symbols=(),
         ai_audit_enabled=True,
         ai_audit_codex_enabled=True,
-        ai_audit_completion_client=fake_completion,
     )
 
     audit = payload["ai_audit"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+import pytest
 
 from quant_strategy_plugins.taco_panic_rebound_research import EVENT_KIND_SOFTENING, TradeWarEvent
 from quant_strategy_plugins.taco_rebound_shadow_plugin import (
@@ -66,7 +67,8 @@ def test_taco_rebound_shadow_routes_geopolitical_deescalation_to_manual_review_n
     assert payload["event_quality"]["checks"]["rebound_confirmation_satisfied"] is True
 
 
-def test_taco_rebound_shadow_ai_audit_uses_gateway_fallback_without_changing_route(monkeypatch) -> None:
+@pytest.mark.parametrize("advisory", [False, True])
+def test_taco_rebound_shadow_ai_audit_uses_gateway_fallback_without_changing_route(monkeypatch, advisory) -> None:
     monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
     prices = _panic_rebound_prices()
     dates = pd.bdate_range("2026-03-20", periods=12)
@@ -88,7 +90,7 @@ def test_taco_rebound_shadow_ai_audit_uses_gateway_fallback_without_changing_rou
         assert "TACO rebound plugin" in messages[0]["content"]
         if endpoint.name == "primary":
             raise RuntimeError("primary unavailable")
-        return {
+        return ({
             "verdict": "agree",
             "route_assessment": "event_rebound_context_supported",
             "confidence": 0.78,
@@ -96,7 +98,7 @@ def test_taco_rebound_shadow_ai_audit_uses_gateway_fallback_without_changing_rou
             "key_risks": ["headline-driven event context can reverse"],
             "data_gaps": [],
             "human_review_recommended": True,
-        }
+        }, advisory)
 
     monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_taco_rebound_shadow_signal(
@@ -120,7 +122,8 @@ def test_taco_rebound_shadow_ai_audit_uses_gateway_fallback_without_changing_rou
     assert payload["execution_controls"]["ai_audit_shadow_only"] is True
     assert calls == ["primary", "fallback"]
     audit = payload["ai_audit"]
-    assert audit["status"] == "ok"
+    expected_status = "advisory" if advisory else "ok"
+    assert audit["status"] == expected_status
     assert audit["audit_kind"] == "taco_rebound_shadow"
     assert audit["selected_endpoint"]["name"] == "fallback"
     assert audit["selected_endpoint"]["model"] == "fallback-model"
@@ -128,7 +131,9 @@ def test_taco_rebound_shadow_ai_audit_uses_gateway_fallback_without_changing_rou
     assert audit["final_route_unchanged"] is True
     assert audit["deterministic_route"] == ROUTE_TACO_REBOUND
     assert audit["attempts"][0]["status"] == "failed"
-    assert audit["attempts"][1]["status"] == "ok"
+    assert audit["attempts"][1]["status"] == expected_status
+    from quant_strategy_plugins.plugin_signal_utils import flatten_for_csv
+    assert flatten_for_csv(payload)["ai_audit.status"] == expected_status
 
 
 def test_taco_rebound_shadow_ai_audit_skips_without_gateway(monkeypatch) -> None:

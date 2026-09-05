@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+import pytest
 
 from quant_strategy_plugins.crisis_response_research import ROUTE_NO_ACTION, ROUTE_TRUE_CRISIS
 from quant_strategy_plugins.crisis_response_shadow_plugin import (
@@ -84,7 +85,8 @@ def test_shadow_signal_routes_financial_credit_crisis_without_live_execution() -
     assert "ai_audit" not in payload
 
 
-def test_shadow_signal_ai_audit_uses_gateway_fallback_without_changing_route(monkeypatch) -> None:
+@pytest.mark.parametrize("advisory", [False, True])
+def test_shadow_signal_ai_audit_uses_gateway_fallback_without_changing_route(monkeypatch, advisory) -> None:
     monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
     prices = _financial_crisis_prices()
     as_of = str(pd.to_datetime(prices["as_of"]).max().date())
@@ -96,7 +98,7 @@ def test_shadow_signal_ai_audit_uses_gateway_fallback_without_changing_route(mon
         assert messages[0]["role"] == "system"
         if endpoint.name == "primary":
             raise RuntimeError("primary unavailable")
-        return {
+        return ({
             "verdict": "agree",
             "route_assessment": "confirm_true_crisis",
             "confidence": 0.82,
@@ -104,7 +106,7 @@ def test_shadow_signal_ai_audit_uses_gateway_fallback_without_changing_route(mon
             "key_risks": ["financial and credit stress are both active"],
             "data_gaps": [],
             "human_review_recommended": False,
-        }
+        }, advisory)
 
     monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_crisis_response_shadow_signal(
@@ -131,14 +133,17 @@ def test_shadow_signal_ai_audit_uses_gateway_fallback_without_changing_route(mon
     assert payload["execution_controls"]["ai_audit_shadow_only"] is True
     assert calls == ["primary", "fallback"]
     audit = payload["ai_audit"]
-    assert audit["status"] == "ok"
+    expected_status = "advisory" if advisory else "ok"
+    assert audit["status"] == expected_status
     assert audit["selected_endpoint"]["name"] == "fallback"
     assert audit["selected_endpoint"]["model"] == "fallback-model"
     assert audit["verdict"] == "agree"
     assert audit["final_route_unchanged"] is True
     assert audit["deterministic_route"] == ROUTE_TRUE_CRISIS
     assert audit["attempts"][0]["status"] == "failed"
-    assert audit["attempts"][1]["status"] == "ok"
+    assert audit["attempts"][1]["status"] == expected_status
+    from quant_strategy_plugins.plugin_signal_utils import flatten_for_csv
+    assert flatten_for_csv(payload)["ai_audit.status"] == expected_status
 
 
 def test_shadow_signal_ai_audit_uses_gateway_anthropic_fallback(monkeypatch) -> None:
@@ -151,7 +156,7 @@ def test_shadow_signal_ai_audit_uses_gateway_anthropic_fallback(monkeypatch) -> 
         calls.append((endpoint.name, endpoint.provider))
         if endpoint.provider == "openai":
             raise RuntimeError("openai unavailable")
-        return {
+        return ({
             "verdict": "review",
             "route_assessment": "needs_human_review",
             "confidence": 0.64,
@@ -159,7 +164,7 @@ def test_shadow_signal_ai_audit_uses_gateway_anthropic_fallback(monkeypatch) -> 
             "key_risks": ["rapid drawdown"],
             "data_gaps": ["macro context not in payload"],
             "human_review_recommended": True,
-        }
+        }, False)
 
     monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_crisis_response_shadow_signal(
@@ -232,7 +237,7 @@ def test_shadow_signal_ai_audit_prefers_gateway_codex_provider(monkeypatch) -> N
 
     def fake_completion(endpoint, _messages, _timeout_seconds):
         calls.append((endpoint.name, endpoint.provider))
-        return {
+        return ({
             "verdict": "agree",
             "route_assessment": "codex_confirmed",
             "confidence": 0.70,
@@ -240,7 +245,7 @@ def test_shadow_signal_ai_audit_prefers_gateway_codex_provider(monkeypatch) -> N
             "key_risks": [],
             "data_gaps": [],
             "human_review_recommended": False,
-        }
+        }, False)
 
     monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
     payload = build_crisis_response_shadow_signal(

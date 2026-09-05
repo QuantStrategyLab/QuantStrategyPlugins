@@ -305,7 +305,7 @@ def _complete_with_endpoint(
     endpoint: AiAuditEndpoint,
     messages: Sequence[Mapping[str, str]],
     timeout_seconds: float,
-) -> str:
+) -> tuple[str, bool]:
     endpoint = endpoint.normalized()
 
     # API keys live on the VPS — no keys in plugin config needed.
@@ -317,7 +317,7 @@ def _complete_with_endpoint(
         for m in messages if str(m.get("content") or "").strip()
     )
     if endpoint.provider == PROVIDER_CODEX:
-        return _codex_via_gateway(prompt, endpoint.model, timeout_seconds)
+        return _codex_via_gateway(prompt, endpoint.model, timeout_seconds), False
     return _llm_via_gateway(prompt, endpoint.model, endpoint.provider, timeout_seconds)
 
 
@@ -339,8 +339,8 @@ def _codex_via_gateway(prompt: str, model: str, timeout_seconds: float) -> str:
         raise AiAuditError("ai_gateway_request_failed") from None
 
 
-def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: float) -> str:
-    """Analyze via AiGateway service — delegates to LlmAdapter on VPS."""
+def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: float) -> tuple[str, bool]:
+    """Return analysis content and its advisory status, never decision authority."""
     try:
         from ai_gateway_client import AiGatewayClient, GatewayConfig
         config = GatewayConfig.from_env()
@@ -349,8 +349,20 @@ def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: fl
         actual_provider = str(getattr(result, "provider", "") or "").strip().lower()
         if actual_provider != provider:
             raise AiAuditError("ai_gateway_provider_mismatch")
-        if result.success and str(result.output or "").strip():
-            return str(result.output)
+        output = result.output
+        raw = getattr(result, "raw", None)
+        note = getattr(result, "note", "")
+        status = raw.get("status", "ok") if isinstance(raw, dict) else "ok"
+        policy = raw.get("policy_verdict", status) if isinstance(raw, dict) else status
+        advisory = (result.success is False and note == "advisory"
+                    and status == "advisory" and policy == "advisory" and isinstance(raw, dict))
+        ok = (result.success is True and note == ""
+              and status == "ok" and policy in ("ok", "eligible"))
+        if (isinstance(output, str) and output.strip() and not getattr(result, "error", "")
+                and (raw is None or isinstance(raw, dict))
+                and (not isinstance(raw, dict) or raw.get("output", output) == output)
+                and (ok or advisory)):
+            return output, advisory
         raise AiAuditError("ai_gateway_rejected")
     except ImportError:
         raise AiAuditError("ai_gateway_client_unavailable") from None
@@ -681,22 +693,24 @@ def _run_ai_audit(
     attempts: list[dict[str, Any]] = []
     for endpoint in endpoints:
         try:
-            raw_response = _complete_with_endpoint(endpoint, messages, float(timeout_seconds))
+            raw_response, advisory = _complete_with_endpoint(endpoint, messages, float(timeout_seconds))
             audit_response = _normalize_ai_audit_response(_extract_json_object(raw_response))
-            attempts.append({**endpoint.report(), "status": "ok"})
+            status = "advisory" if advisory else "ok"
+            attempts.append({**endpoint.report(), "status": status})
 
-            # Phase 3: report AI vs deterministic disagreement to AiGateway
-            _report_shadow_disagreement(
-                audit_kind=audit_kind,
-                ai_verdict=audit_response.get("verdict", ""),
-                ai_confidence=audit_response.get("confidence") or 0.0,
-                deterministic_route=str(deterministic_payload.get("canonical_route") or
-                                       deterministic_payload.get("suggested_action") or ""),
-            )
+            # Advisory content is display-only; it must not mutate feedback state.
+            if not advisory:
+                _report_shadow_disagreement(
+                    audit_kind=audit_kind,
+                    ai_verdict=audit_response.get("verdict", ""),
+                    ai_confidence=audit_response.get("confidence") or 0.0,
+                    deterministic_route=str(deterministic_payload.get("canonical_route") or
+                                           deterministic_payload.get("suggested_action") or ""),
+                )
 
             return {
                 **base_payload,
-                "status": "ok",
+                "status": status,
                 "selected_endpoint": endpoint.report(),
                 "attempts": attempts,
                 **audit_response,

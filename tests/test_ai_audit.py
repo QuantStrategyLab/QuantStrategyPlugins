@@ -127,7 +127,7 @@ def test_gateway_uses_default_model_without_local_provider_key(monkeypatch) -> N
         ai_audit,
         "_complete_with_endpoint",
         lambda endpoint, *_args: calls.append((endpoint.provider, endpoint.model))
-        or '{"verdict":"agree","summary":"ok","risk_flags":[],"evidence_gaps":[],"confidence":0.5}',
+        or ('{"verdict":"agree","summary":"ok","risk_flags":[],"evidence_gaps":[],"confidence":0.5}', False),
     )
     payload = _run_ai_audit(
         {"canonical_route": "true_crisis", "suggested_action": "defend"},
@@ -165,7 +165,7 @@ def test_gateway_success_calls_analyze_and_execute(monkeypatch) -> None:
         ),
     )
 
-    assert _llm_via_gateway("audit", "gpt-test", "openai", 3.0) == "analysis"
+    assert _llm_via_gateway("audit", "gpt-test", "openai", 3.0) == ("analysis", False)
     assert _codex_via_gateway("review", "codex-test", 4.0) == "review"
     assert calls == [
         ("analyze", ("audit",), {"model": "gpt-test", "timeout": 3.0}),
@@ -253,3 +253,102 @@ def test_gateway_client_import_failure_never_uses_direct_fallback(monkeypatch, g
             gateway_call("audit", "test-model", 1.0)
 
     assert direct_calls == []
+
+
+def _install_analysis_result(monkeypatch, result):
+    calls = []
+
+    class FakeGatewayClient:
+        def __init__(self, _config):
+            pass
+
+        def analyze(self, *_args, **_kwargs):
+            calls.append("analyze")
+            return result
+
+        def execute(self, *_args, **_kwargs):
+            raise AssertionError("advisory analysis must not execute")
+
+    monkeypatch.setitem(sys.modules, "ai_gateway_client", types.SimpleNamespace(
+        AiGatewayClient=FakeGatewayClient,
+        GatewayConfig=types.SimpleNamespace(from_env=lambda: object()),
+    ))
+    return calls
+
+
+@pytest.mark.parametrize("status", ["ok", "advisory"])
+@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+def test_research_content_preserves_status_controls_and_feedback_boundary(monkeypatch, status, entry):
+    import json
+    from copy import deepcopy
+    from quant_strategy_plugins.plugin_signal_utils import flatten_for_csv, json_scalar
+
+    output = json.dumps({
+        "verdict": "review", "summary": "synthetic research opinion", "confidence": 0.8,
+        "status": "ok", "final_route_unchanged": False, "mode": "live",
+        "execution_controls": {"broker_order_allowed": True},
+    })
+    result = types.SimpleNamespace(
+        success=status == "ok", output=output, provider="openai", model="test-model",
+        note="advisory" if status == "advisory" else "", error="",
+        raw={"status": status, "output": output,
+             "policy_verdict": "advisory" if status == "advisory" else "eligible"},
+    )
+    calls = _install_analysis_result(monkeypatch, result)
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
+    monkeypatch.setattr(ai_audit, "build_ai_audit_endpoints", lambda **_kwargs: (
+        ai_audit.AiAuditEndpoint("primary", "", model="test-model"),
+        ai_audit.AiAuditEndpoint("fallback", "", model="fallback-model"),
+    ))
+    feedback = []
+    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", lambda **fields: feedback.append(fields))
+    deterministic = {"profile": "synthetic", "canonical_route": "no_action", "suggested_action": "watch_only"}
+    original = deepcopy(deterministic)
+    payload = entry(deterministic, enabled=True, codex_enabled=False)
+
+    assert payload["status"] == status
+    assert payload["attempts"][0]["status"] == status
+    assert calls == ["analyze"]  # Advisory must not trigger a fallback model.
+    assert len(feedback) == (1 if status == "ok" else 0)
+    assert payload["final_route_unchanged"] is True
+    assert payload["mode"] == "shadow_only"
+    assert payload["execution_controls"]["broker_order_allowed"] is False
+    assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
+    assert payload["execution_controls"]["allocation_recommendation_allowed"] is False
+    assert payload["selected_endpoint"]["provider"] == "openai"
+    assert deterministic == original
+    embedded = json_scalar({**deterministic, "ai_audit": payload})
+    assert flatten_for_csv(embedded)["ai_audit.status"] == status
+    assert result.success is (status == "ok")
+
+
+@pytest.mark.parametrize("changes", [
+    {"success": True, "note": "advisory", "raw": {"status": "failed"}},
+    {"success": True, "raw": {"status": "invalid"}},
+    {"success": True, "raw": {"status": "unknown"}},
+    {"success": False, "note": "advisory", "raw": {"status": "ok"}},
+    {"success": True, "note": "advisory", "raw": {"status": "advisory"}},
+    {"success": False, "note": "advisory", "raw": {"status": "advisory", "policy_verdict": "invalid"}},
+    {"success": False, "note": "advisory", "raw": None},
+    {"success": True, "note": "failed", "raw": None},
+    {"success": True, "raw": {"status": "ok", "output": None}},
+    {"success": True, "output": 42},
+    {"success": True, "output": None},
+    {"success": True, "output": "  "},
+    {"success": True, "output": {"summary": "not text"}},
+])
+def test_invalid_analysis_metadata_and_content_are_rejected(monkeypatch, changes):
+    fields = dict(success=True, note="", error="", raw=None, provider="openai", output="synthetic text")
+    fields.update(changes)
+    _install_analysis_result(monkeypatch, types.SimpleNamespace(**fields))
+    with pytest.raises(AiAuditError, match="ai_gateway_rejected"):
+        _llm_via_gateway("synthetic prompt", "test-model", "openai", 1.0)
+
+
+def test_advisory_provider_mismatch_still_rejected(monkeypatch):
+    _install_analysis_result(monkeypatch, types.SimpleNamespace(
+        success=False, note="advisory", error="", provider="anthropic", output="synthetic text",
+        raw={"status": "advisory", "output": "synthetic text"},
+    ))
+    with pytest.raises(AiAuditError, match="ai_gateway_provider_mismatch"):
+        _llm_via_gateway("synthetic prompt", "test-model", "openai", 1.0)

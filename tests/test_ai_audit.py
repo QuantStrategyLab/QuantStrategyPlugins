@@ -1,5 +1,6 @@
 import sys
 import types
+import json
 
 import pytest
 
@@ -13,6 +14,31 @@ from quant_strategy_plugins.ai_audit import (
     _scrub_api_key_from_text,
     build_ai_audit_endpoints,
 )
+
+
+@pytest.mark.parametrize("confidence", ["nan", "NaN", "inf", "-inf", float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+def test_nonfinite_confidence_remains_unknown_and_does_not_write_feedback(monkeypatch, confidence, entry):
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
+    monkeypatch.setattr(ai_audit, "build_ai_audit_endpoints", lambda **_: (
+        ai_audit.AiAuditEndpoint("primary", "", model="synthetic-model"),
+    ))
+    monkeypatch.setattr(ai_audit, "_complete_with_endpoint", lambda *_: (
+        json.dumps({"verdict": "agree", "confidence": confidence}), False,
+    ))
+    feedback = []
+    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", lambda **fields: feedback.append(fields))
+    payload = entry({"canonical_route": "no_action"}, enabled=True)
+    assert payload["confidence"] is None
+    assert feedback == []
+    assert payload["final_route_unchanged"] is True
+    assert payload["execution_controls"]["broker_order_allowed"] is False
+    json.dumps(payload, allow_nan=False)
+
+
+@pytest.mark.parametrize("value,expected", [(None, None), ("invalid", None), (0.0, 0.0), ("0.8", 0.8), (1.0, 1.0)])
+def test_confidence_finite_and_missing_values_keep_existing_semantics(value, expected):
+    assert ai_audit._as_confidence(value) == expected
 
 
 def _clear_ai_audit_env(monkeypatch) -> None:

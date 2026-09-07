@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -444,6 +445,8 @@ def _as_confidence(value: Any) -> float | None:
         confidence = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(confidence):
+        return None
     if confidence < 0.0:
         return 0.0
     if confidence > 1.0:
@@ -699,7 +702,7 @@ def _run_ai_audit(
             attempts.append({**endpoint.report(), "status": status})
 
             # Advisory content is display-only; it must not mutate feedback state.
-            if not advisory:
+            if not advisory and audit_response.get("confidence") is not None:
                 _report_shadow_disagreement(
                     audit_kind=audit_kind,
                     ai_verdict=audit_response.get("verdict", ""),

@@ -499,3 +499,34 @@ def test_advisory_provider_mismatch_still_rejected(monkeypatch):
     ))
     with pytest.raises(AiAuditError, match="ai_gateway_provider_mismatch"):
         _llm_via_gateway("synthetic prompt", "test-model", "openai", 1.0)
+
+
+@pytest.mark.parametrize("value,expected", [
+    (False, "False"), (True, "True"), (0, "0"), (0.0, "0.0"),
+    (None, ""), ("", ""), ("  text\x00\x7f  ", "text"),
+])
+def test_input_sanitizer_preserves_known_falsy_values(value, expected):
+    assert ai_audit._sanitize_user_input(value) == expected
+
+
+def test_input_sanitizer_still_truncates_after_cleaning():
+    assert ai_audit._sanitize_user_input("  a\x00bcdef  ", max_length=3) == "abc"
+
+
+@pytest.mark.parametrize("builder,boolean_fields", [
+    (ai_audit._build_crisis_audit_messages, (
+        "would_trade_if_enabled", "price_scanner_active", "bubble_fragility_active", "kill_switch_active",
+    )),
+    (ai_audit._build_taco_audit_messages, (
+        "manual_review_required", "rebound_context_active", "event_context_active",
+        "price_stress_scan_active", "price_crisis_guard_active",
+    )),
+])
+def test_original_prompts_distinguish_false_zero_and_missing(builder, boolean_fields):
+    source = dict.fromkeys(boolean_fields, False)
+    source["data_freshness"] = 0
+    user = json.loads(builder(source)[1]["content"])
+    assert all(user[field] == "False" for field in boolean_fields)
+    assert user["data_freshness"] == "0"
+    assert user["as_of"] == ""
+    assert source == {**dict.fromkeys(boolean_fields, False), "data_freshness": 0}

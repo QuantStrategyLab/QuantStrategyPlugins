@@ -1,6 +1,10 @@
 import sys
 import types
 import json
+import io
+import tomllib
+from importlib.metadata import distribution
+from pathlib import Path
 
 import pytest
 
@@ -55,6 +59,70 @@ def _clear_ai_audit_env(monkeypatch) -> None:
         "CODEX_AUDIT_SERVICE_URL",
     ):
         monkeypatch.delenv(key, raising=False)
+
+
+def test_optional_ai_extra_installs_the_declared_gateway_sdk() -> None:
+    from ai_gateway_client import AiGatewayClient, AiResult, GatewayConfig
+
+    project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+    requirement, = project["optional-dependencies"]["ai"]
+    assert requirement.startswith("ai-gateway-client @ git+")
+    assert not any(item.startswith("ai-gateway-client") for item in project["dependencies"])
+    source = json.loads(distribution("ai-gateway-client").read_text("direct_url.json"))
+    assert source["vcs_info"]["commit_id"] == requirement.rsplit("@", 1)[1]
+    assert AiGatewayClient.__module__ == "ai_gateway_client.gateway_client"
+    assert AiResult.__module__ == "ai_gateway_client.gateway_client"
+    assert GatewayConfig.__module__ == "ai_gateway_client.config"
+
+
+@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+def test_installed_sdk_consumes_codex_job_without_feedback_or_api_fallback(monkeypatch, entry):
+    from ai_gateway_client import gateway_client
+
+    _clear_ai_audit_env(monkeypatch)
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
+    monkeypatch.setenv("AI_GATEWAY_SOURCE_REPO", "QuantStrategyLab/UsEquitySnapshotPipelines")
+    monkeypatch.setattr(gateway_client, "_fetch_oidc_token", lambda _audience: "synthetic")
+    monkeypatch.setattr(gateway_client.time, "sleep", lambda _seconds: None)
+    calls = []
+    job_id = "synthetic-job-000000000000"
+
+    def urlopen(request, **_kwargs):
+        calls.append((request.get_method(), request.full_url))
+        if request.get_method() == "POST":
+            assert request.full_url == "https://gateway.invalid/v1/ai/execute/jobs"
+            payload = json.loads(request.data)
+            assert payload["mode"] == "review_only"
+            assert payload["model"] == "gpt-6-astra"
+            assert payload["source_repository"] == "QuantStrategyLab/UsEquitySnapshotPipelines"
+            assert "watch_only" in payload["prompt"]
+            response = {"status": "queued", "job_id": job_id}
+        else:
+            assert request.full_url == f"https://gateway.invalid/v1/ai/execute/jobs/{job_id}"
+            response = {"status": "succeeded", "output": json.dumps({
+                "verdict": "review", "confidence": 0.8, "summary": "synthetic research opinion",
+                "mode": "live", "execution_controls": {"broker_order_allowed": True},
+            })}
+        return io.BytesIO(json.dumps(response).encode())
+
+    monkeypatch.setattr(gateway_client.urllib.request, "urlopen", urlopen)
+    feedback = []
+    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", lambda **fields: feedback.append(fields))
+    deterministic = {"profile": "synthetic", "canonical_route": "no_action", "suggested_action": "watch_only"}
+    payload = entry(deterministic, enabled=True, codex_enabled=True, codex_model="gpt-6-astra")
+
+    assert payload["status"] == "advisory"
+    assert payload["summary"] == "synthetic research opinion"
+    assert payload["deterministic_route"] == "no_action"
+    assert payload["final_route_unchanged"] is True
+    assert payload["mode"] == "shadow_only"
+    assert payload["execution_controls"]["broker_order_allowed"] is False
+    assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
+    assert payload["execution_controls"]["allocation_recommendation_allowed"] is False
+    assert len(payload["attempts"]) == 1
+    assert [method for method, _url in calls] == ["POST", "GET"]
+    assert feedback == []
+    assert deterministic["canonical_route"] == "no_action"
 
 
 def test_ai_audit_uses_generic_anthropic_api_key(monkeypatch) -> None:

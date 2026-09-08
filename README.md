@@ -37,9 +37,16 @@ It supports the system but does not decide which strategy should be live. Strate
 ## Quick start
 
 ```bash
-python -m pip install -e .
+python -m pip install -e '.[test,ai]'
 python -m pytest -q
 ```
+
+The default runtime install (`python -m pip install .`) does not include the AI
+client. Install `.[ai]` only for an approved AI consumer; it adds the pinned,
+standard-library-only AIAuditBridge SDK, not the gateway service. Installation
+does not enable AI audits, configure credentials, or grant execution authority.
+The full test suite uses the real installed SDK with synthetic HTTP responses;
+it does not call a model or verify production authentication.
 
 ## Useful docs
 - [`docs/plugin_lifecycle_policy.md`](docs/plugin_lifecycle_policy.md)

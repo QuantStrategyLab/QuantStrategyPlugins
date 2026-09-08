@@ -199,6 +199,59 @@ def test_gateway_success_calls_analyze_and_execute(monkeypatch) -> None:
     ]
 
 
+@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+def test_codex_execution_is_advisory_without_feedback_or_route_changes(monkeypatch, entry):
+    from copy import deepcopy
+
+    _clear_ai_audit_env(monkeypatch)
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
+    output = json.dumps({
+        "verdict": "review", "confidence": 0.8, "summary": "synthetic research opinion",
+        "status": "verified", "final_route_unchanged": False, "mode": "live",
+        "execution_controls": {"broker_order_allowed": True},
+    })
+    calls = []
+
+    class SuccessfulCodexClient:
+        def __init__(self, _config):
+            pass
+
+        def execute(self, prompt, **kwargs):
+            calls.append((prompt, kwargs))
+            return types.SimpleNamespace(success=True, output=output, provider="codex")
+
+        def analyze(self, *_args, **_kwargs):
+            raise AssertionError("Codex advisory must not fall back to a paid API")
+
+    monkeypatch.setitem(sys.modules, "ai_gateway_client", types.SimpleNamespace(
+        AiGatewayClient=SuccessfulCodexClient,
+        GatewayConfig=types.SimpleNamespace(from_env=lambda: object()),
+    ))
+    feedback = []
+    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", lambda **fields: feedback.append(fields))
+    deterministic = {"profile": "synthetic", "canonical_route": "no_action", "suggested_action": "watch_only"}
+    original = deepcopy(deterministic)
+
+    payload = entry(deterministic, enabled=True, codex_enabled=True, codex_model="codex-test")
+
+    assert payload["status"] == "advisory"
+    assert payload["summary"] == "synthetic research opinion"
+    assert payload["confidence"] == 0.8
+    assert len(calls) == 1
+    assert calls[0][1]["mode"] == "review_only"
+    assert calls[0][1]["model"] == "codex-test"
+    assert len(payload["attempts"]) == 1
+    assert payload["attempts"][0]["status"] == "advisory"
+    assert payload["selected_endpoint"]["provider"] == "codex"
+    assert feedback == []
+    assert deterministic == original
+    assert payload["final_route_unchanged"] is True
+    assert payload["mode"] == "shadow_only"
+    assert payload["execution_controls"]["broker_order_allowed"] is False
+    assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
+    assert payload["execution_controls"]["allocation_recommendation_allowed"] is False
+
+
 @pytest.mark.parametrize("actual_provider", ["anthropic", ""])
 def test_gateway_provider_mismatch_fails_closed(monkeypatch, actual_provider: str) -> None:
     class MismatchedGatewayClient:

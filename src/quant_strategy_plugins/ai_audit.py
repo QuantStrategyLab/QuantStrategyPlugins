@@ -318,7 +318,8 @@ def _complete_with_endpoint(
         for m in messages if str(m.get("content") or "").strip()
     )
     if endpoint.provider == PROVIDER_CODEX:
-        return _codex_via_gateway(prompt, endpoint.model, timeout_seconds), False
+        # Successful execution is not independent verification of its content.
+        return _codex_via_gateway(prompt, endpoint.model, timeout_seconds), True
     return _llm_via_gateway(prompt, endpoint.model, endpoint.provider, timeout_seconds)
 
 

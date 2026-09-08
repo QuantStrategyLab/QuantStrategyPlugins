@@ -118,7 +118,7 @@ def _env_bool(*names: str, default: bool = False) -> bool:
 
 def _sanitize_user_input(value: Any, *, max_length: int = SANITIZE_MAX_FIELD_LENGTH) -> str:
     """Strip control characters and truncate free-text fields before LLM submission."""
-    text = str(value or "").strip()
+    text = str(value if value is not None else "").strip()
     # Remove C0/C1 control chars except common whitespace (tab, newline)
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
     return text[:max_length]

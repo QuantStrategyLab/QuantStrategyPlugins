@@ -6,4 +6,5 @@ bundle = "2026.07.1"
 requires = [
   "pandas>=2.0",
   "yfinance>=0.2.40",
+  "ai-gateway-client @ git+https://github.com/QuantStrategyLab/AIAuditBridge.git@65c8bcf432f578f657c12d5dab0e16ebec0bef5a",
 ]

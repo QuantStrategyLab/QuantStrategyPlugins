@@ -8,6 +8,7 @@ signal can affect a portfolio.
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any
 
 import pandas as pd
@@ -131,17 +132,21 @@ def build_benchmark_drawdown_guard_signal(
     signal_as_of = signal_date.date().isoformat()
     if symbol not in close.columns:
         return json_scalar(_blocked(as_of=signal_as_of, benchmark_symbol=symbol, reason_code="benchmark_missing"))
+    benchmark = pd.to_numeric(close[symbol], errors="coerce").loc[:signal_date].dropna()
+    if not benchmark.empty:
+        # An unrelated symbol's newer matrix row cannot refresh this benchmark.
+        signal_date = pd.Timestamp(benchmark.index[-1]).normalize()
+        signal_as_of = signal_date.date().isoformat()
     price_age_days = int((requested_date - signal_date).days)
     if price_age_days > max_age:
         return json_scalar(_blocked(as_of=signal_as_of, benchmark_symbol=symbol, reason_code="benchmark_stale"))
-    benchmark = pd.to_numeric(close[symbol], errors="coerce").loc[:signal_date].dropna()
     if len(benchmark) < lookback:
         return json_scalar(_blocked(as_of=signal_as_of, benchmark_symbol=symbol, reason_code="benchmark_history_incomplete"))
     window = benchmark.tail(lookback)
+    if not window.map(isfinite).all() or (window <= 0.0).any():
+        return json_scalar(_blocked(as_of=signal_as_of, benchmark_symbol=symbol, reason_code="benchmark_price_invalid"))
     current = float(window.iloc[-1])
     peak = float(window.max())
-    if current <= 0.0 or peak <= 0.0:
-        return json_scalar(_blocked(as_of=signal_as_of, benchmark_symbol=symbol, reason_code="benchmark_price_invalid"))
     drawdown = current / peak - 1.0
 
     route = ROUTE_NO_ACTION

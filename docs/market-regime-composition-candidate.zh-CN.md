@@ -72,13 +72,38 @@ crisis、硬上限和必需数据门优先约束机会侧。TACO/panic reversal/
 
 ## 三个有界合成验收规格
 
-以下是待实现测试规格，**本文件未运行新测试或收益优化**。只使用固定 JSON/日期和代数，不读取 provider、运行 AI、回测历史、搜索阈值或连接 broker。旧策略只作 characterization，新政策必须另有入口，不能覆盖旧断言。
+以下为冻结的合成验收规格；2026-10-06 已实现其离线组合比较部分，具体覆盖和未覆盖边界见下节。**未运行收益优化，也未实现跨周期 release consumer**。只使用固定 JSON/日期和代数，不读取 provider、运行 AI、回测历史、搜索阈值或连接 broker。旧策略只作 characterization，新政策必须另有入口，不能覆盖旧断言。
 
 1. **同维优先级与交集对照**：fresh benchmark `(L=.5,R=.5)`、fresh macro `(L=.1,R=.1)`，相同 scope/分母/决策时点。旧输出 source=benchmark、`.5/.5`；候选 `.1/.1`，两维都绑定 macro，仍记录 benchmark。反转输入顺序和重复同身份记录不改变候选 digest/结果。断言不是 `.05`，旧默认输出不变
 2. **同源去重与独立维度**：同一个 guard observation 同时给 L=R=.5，并重复同身份约束；baseline 两腿各450，使用上述冻结 legacy adapter。旧与候选 cap 都是 `.5/.5`；候选保留两个维度，代数结果仍为112.5/337.5、总风险450。原因去重不能删 R、删 L、变成总风险225或新增第三个 risk_budget 折扣。这是目标代数检查，不是持仓或实际买入证明
 3. **新旧日期与机会冲突**：fresh benchmark `.5/.5`、已过 valid_until 的必需 macro `.1/.1`、同日 opportunity；前一已接受 transition 为受限 episode，且无新策略 intent/release event。旧 arbiter 不在此函数逐源验时，仍优先 benchmark `.5/.5`；候选为 UNKNOWN/BLOCKED，机会不可放宽，过去限制不得因 stale 消失而自动恢复。记录当前有效 `.5` 只作已验约束，不当作 executable full budget；strict consumer 增加风险许可为 false，账户不可信时不提交任何假设减仓
 
-正式安全测试另需覆盖 policy/input 版本错配、同身份矛盾、多个 scope、不同单位、crisis cap=0、非交换转移顺序、并发/部分成交/挂单、重复 release 与 AI 文案变更；这些要求不冒充本轮额外合成结果。
+本轮纯函数负例覆盖 policy/input 版本错配、同身份矛盾、scope/单位/分母不一致、cap=0 及 AI 文案变更。正式 consumer 安全测试仍需覆盖非交换转移、并发/部分成交/挂单、完整前驱状态、重复 release 和 crash 生命周期；不能把离线合成结果当作这些状态链的证明。
+
+## 2026-10-06 研究比较器工程状态与冻结接口
+
+消费者状态仍为 `DESIGN_ONLY_NOT_RUNTIME`。独立模块
+`src/quant_strategy_plugins/market_regime_composition_research.py` 提供
+`compose_research_constraints(policy, sources, constraints, expected_policy_sha256=...)`，
+仅比较**已映射且冻结的合成约束**，不读取 provider、不从事实推导 cap、不接线任何 runner。
+原 `market_regime_arbiter.v1` 及其旧测试不变；`.5` 优先级 characterization 不是“生产 bug 已修复”。
+
+冻结的窄研究接口如下；它是策略侧离线 trial 记录，**不是 V2 envelope 的扩展或可执行政策 DSL**：
+
+- `policy_id` 固定为本文候选 ID，`policy_version=v1`；`expected_policy_sha256` 校验完整 policy canonical JSON，包括下面的源/约束绑定。未知版本、畸形 policy 或 hash 不符直接抛 `ResearchCompositionError`，不返回任何提案
+- policy 必填 `strategy={candidate_id, revision, config_sha256}`、`baseline={baseline_id, baseline_sha256}`；strategy 和 producer revision 均要求完整 40 位 SHA-1 或 64 位 SHA-256。这里只绑定 frozen baseline 身份，不计算 baseline、目标或股数，也不证明该策略或 baseline 已获批准
+- `scope={market, symbols, calendar, time_zone}` 必须精确相同；`denominators` 为两个既定维度分别指定不同的 frozen baseline 分母身份。仅支持 `measurement=baseline_nominal_ratio.v1`、`unit=ratio` 和有限 `[0,1]` cap；金额、quantity、effective exposure、`risk_budget_scalar` alias 均不能冒充第三维或自动转换
+- policy 的 `requested_as_of`、`decision_at` 及 `validity_policy_version=research.explicit_interval_and_age.v1` 必填。逐源 `inputs` 绑定 `observation_id`、`required`、`applicable`、`factor_id`、`algorithm_version`、`window`、`sampling`、`max_delay_seconds`、`source_sha256` 和 `constraints_sha256`；没有默认来源或默认 TTL
+- 每个 source 是 `{observation_id, envelope, received_at}`。已有 V2 validator 原样检查 envelope 的 schema、producer repo/full revision/code/config hash、P1 manifest/root hash 和 payload hash；再验证整个 source 的冻结 hash。因此这些是合成输入身份和完整性验证，不是签名、源真实性、运行时安装或 provider 可用性的证明
+- envelope 的确定性 payload 保留自己的 `observation_id/factor_id/algorithm_version/scope/window/sampling`、`window_complete=true`、`observed_as_of/published_at/effective_from/valid_until`。所有时间须带时区；`observed_as_of <= requested_as_of <= decision_at`，且 `observed_as_of <= published_at <= received_at <= decision_at`。有效区间冻结为 `[effective_from, valid_until)`，年龄以 `decision_at - observed_as_of <= max_delay_seconds` 检查，收到新报告不会刷新观测年龄。日历标识只作精确绑定，本 helper 不计算交易 session
+- 每条 constraint 必填 `constraint_id/observation_id/policy_version/scope/dimension/measurement/unit/denominator_id/cap/kind/reason_codes/reason_group_id`。`kind` 只允许 `hard/soft/watch_only/opportunity`。约束和对应 source 必须同时匹配 trial 冻结 hash；`constraints_sha256(...)` 只为冻结试验生成排序、精确去重后的集合 hash，不为实际 cap 映射背书
+- source/constraint 输入顺序和精确重复不改变输出；同一约束身份的冲突、未知来源、必需输入缺失/失效会阻塞。适用且有效的 hard 上限逐维取 min，所有并列 binding 和 non-binding 来源均保留。显式 `applicable=false` 的缺失输入记为 `NOT_APPLICABLE`，不扩散成全市场故障；若实际提供该源，仍校验 source 结构、V2/forbidden 字段、固定身份及 hash，畸形内容直接抛 `ResearchCompositionError`、不产生提案，不以不适用跳过完整性校验。实际提供的非适用约束集合也核验冻结 hash 和同身份冲突；非适用约束集合缺失仍允许。该源的其他市场 scope 或过期不触发目标市场的可用性门
+- 输出是 `READY_RESEARCH` 或 `UNKNOWN/BLOCKED` 的研究记录，含完整 source、各约束选用/未选用原因、policy/input 身份及 canonical `decision_digest`。阻塞时只列其余已验证 cap；某维没有可验 hard cap 则为 `null`，不能解释为满额预算。`executable/risk_increase_allowed/release_authority` 始终为 `false`，没有订单、减仓、恢复或账户决策功能
+- 可选 `ai_narrative` 是明确隔离的人类说明输入，完全不读取、不返回、不纳入 digest；AI 混入确定性 envelope 仍由已有 validator 拒绝。确定性原因码和真实来源变化则改变 digest
+
+`tests/test_market_regime_composition_research.py` 仅使用固定人工日期、JSON 与代数。三项规格中，第一项验证旧 priority `.5/.5` 与研究 min `.1/.1`；第二项验证 L/R 独立并在测试内保留 `112.5/337.5` 的 legacy 代数；第三项仅验证 stale 必需输入加机会信号时阻塞、有效 `.5` 不变成执行预算。**第三项所需前驱 transition、retained quantity ceiling、新 intent/release 和账户订单检查尚未在本 helper 实现或验收**。本轮没有新增 UES adapter、state store、pin/config 或 provider，也没有 consumer 采用、PIT/OOS 或收益结论。
+
+复验命令：`PYTHONPATH=src python -m unittest discover -s tests -p test_market_regime_composition_research.py -v`；完整仓库验证仍沿用 CONTRIBUTING/CI。正式采用依赖后续 UES 强 release 合同/真实 intent issuer、source 与状态链验收、独立 review 和预先冻结的 OOS/shadow，不能因纯函数通过测试而跳过。
 
 ## OOS 消融与准入要求
 
@@ -96,6 +121,6 @@ crisis、硬上限和必需数据门优先约束机会侧。TACO/panic reversal/
 - Nautilus [Execution](https://nautilustrader.io/docs/latest/concepts/execution/) 支持订单级检查、REDUCING 合格 reduce-only 与 HALTED 的区别；这些状态不是自动清仓，也不替本系统证明已执行对应控制
 - Cboe [Volatility Trading](https://www.cboe.com/tradable-products/volatility-trading) 将 VIX 定义为 SPX 期权隐含的30日期望波动且非方向预测；跨市场适用性和风险折扣仍须本候选验证，不拿 VIX 下降作恢复批准
 
-最小集成只新增本设计文档；可在已有 market-regime plan 增加“未生效组合候选”的链接，但不修改旧优先级说明为已生效 min-policy。未来实现先做独立 pure research composition helper/测试及 UES candidate adapter，经独立 review 后再决定接线。本文件不推荐迁移 LEAN/Nautilus、重建统一引擎、增加市场指标或删除现有腿约束。
+当前最小落地为本设计文档和独立 pure research composition helper/测试；不修改旧优先级说明为已生效 min-policy。UES candidate adapter 和强 release/state 合同仍是后续独立工作，经独立 review 后再决定接线。本文件不推荐迁移 LEAN/Nautilus、重建统一引擎、增加市场指标或删除现有腿约束。
 
 AI 仅为人的来源可追溯 narrative。AI 输出、失败、延迟、agree/confidence/摘要变更必须不改变确定性事实、policy 状态、目标 digest 或授权；人的实际决定另有明确 decision record。AI 不能放宽风险、选择更宽 cap、解决权限冲突或批准恢复。

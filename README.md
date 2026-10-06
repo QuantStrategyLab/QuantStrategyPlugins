@@ -1,14 +1,5 @@
 # QuantStrategyPlugins
 
-
-## QSL architecture role
-
-- **Layer**: `strategy-lib`.
-- **Responsibility**: sidecar strategy plugin package.
-- **Owns**: plugin contracts, market-regime controls, notification/research plugin outputs.
-- **Consumes**: QuantPlatformKit and strategy/pipeline consumers.
-- **Must not**: decide live eligibility or connect to brokers directly.
-
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
@@ -18,6 +9,14 @@
 QuantStrategyPlugins is a QuantStrategyLab strategy plugin package. It provides sidecar strategy plugins such as market-regime controls, notification artifacts, and research-only plugin outputs.
 
 It supports the system but does not decide which strategy should be live. Strategy eligibility remains in the strategy and snapshot repositories; broker execution remains in the platform repositories.
+
+## QSL architecture role
+
+- **Layer**: `strategy-lib`.
+- **Responsibility**: sidecar strategy plugin package.
+- **Owns**: plugin contracts, market-regime controls, notification/research plugin outputs.
+- **Consumes**: QuantPlatformKit and strategy/pipeline consumers.
+- **Must not**: decide live eligibility or connect to brokers directly.
 
 ## Design boundary
 

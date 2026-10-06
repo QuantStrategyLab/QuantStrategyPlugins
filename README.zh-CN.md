@@ -1,14 +1,5 @@
 # QuantStrategyPlugins
 
-
-## QSL 架构角色
-
-- **层级**：`策略库`。
-- **职责**：sidecar 策略插件包。
-- **事实源/归属**：plugin contracts、market-regime controls、notification/research plugin outputs。
-- **消费对象**：QuantPlatformKit 和 strategy/pipeline consumers。
-- **禁止事项**：决定 live eligibility 或直接连接券商。
-
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
@@ -19,17 +10,20 @@ QuantStrategyPlugins 是 QuantStrategyLab 的策略插件包。提供 market-reg
 
 它支撑系统运行，但不决定哪个策略应该 live。策略资格由策略仓和 snapshot 仓负责；券商执行由平台仓负责。
 
+## QSL 架构角色
+
+- **层级**：`策略库`。
+- **职责**：sidecar 策略插件包。
+- **事实源/归属**：plugin contracts、market-regime controls、notification/research plugin outputs。
+- **消费对象**：QuantPlatformKit 和 strategy/pipeline consumers。
+- **禁止事项**：决定 live eligibility 或直接连接券商。
+
 ## 设计边界
 
 - 下游仓库依赖的契约要保持稳定，必要时做版本化。
 - 除非有协同迁移计划，否则优先保持向后兼容。
 - 密钥和环境专属配置不要写进共享库代码。
 - 会影响多个平台或策略包的改动，需要在文档中说明。
-
-## 延伸文档
-
-- [`docs/plugin_lifecycle_policy.zh-CN.md`](docs/plugin_lifecycle_policy.zh-CN.md)
-- [`docs/strategy-plugin-signal-envelope-v2.zh-CN.md`](docs/strategy-plugin-signal-envelope-v2.zh-CN.md)：纯本地、仅设计的确定性信号 envelope；未接入 runtime。
 
 ## 仓库结构
 
@@ -51,6 +45,7 @@ python -m pytest -q
 - [`docs/plugin_lifecycle_policy.zh-CN.md`](docs/plugin_lifecycle_policy.zh-CN.md)
 - [`docs/market-regime-control-plan.md`](docs/market-regime-control-plan.md)
 - [`docs/market-regime-control-plan.zh-CN.md`](docs/market-regime-control-plan.zh-CN.md)
+- [`docs/strategy-plugin-signal-envelope-v2.zh-CN.md`](docs/strategy-plugin-signal-envelope-v2.zh-CN.md)：纯本地、仅设计的确定性信号 envelope；未接入 runtime。
 
 ## 社区和安全
 

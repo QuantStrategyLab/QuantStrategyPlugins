@@ -333,5 +333,354 @@ class RatesContextObserverTests(unittest.TestCase):
         self.assertEqual(end["received_at"], "2024-01-04T13:01:00Z")
 
 
+def forward_fixture():
+    base = fixture()
+    result = {"schema_version": "qsl.rates-context-input.research.v2",
+              "availability_basis": "collector_first_seen",
+              "collector_id": "SYNTHETIC_FIXTURE_ONLY:collector-v1",
+              "decision_at": base["decision_at"], "series": copy.deepcopy(base["series"])}
+    for role_index, series in enumerate(result["series"].values()):
+        for row_index, row in enumerate(series["rows"]):
+            row["source_published_at"] = None
+            row["first_seen_at"] = row.pop("available_at")
+            row["capture_sha256"] = f"{100 + role_index:064x}"
+            row["row_sha256"] = f"{1 + role_index * 10 + row_index:064x}"
+    return result
+
+
+class ForwardRatesContextObserverTests(unittest.TestCase):
+    def build(self, snapshot=None, policy=None):
+        return observer.build_rates_context_observation_v2(
+            forward_fixture() if snapshot is None else snapshot, config() if policy is None else policy)
+
+    def assert_unknown(self, snapshot, role="nominal_10y"):
+        result = self.build(snapshot)
+        self.assertEqual(result["series"][role]["status"], "unknown")
+        self.assertIsNone(result["series"][role]["change_bp"])
+        return result
+
+    def test_explicit_versions_and_collector_identity(self):
+        result = self.build()
+        self.assertEqual(result["schema_version"], "qsl.rates-context-observation.research.v2")
+        self.assertEqual(result["availability_basis"], "collector_first_seen")
+        self.assertEqual(result["collector_id"], "SYNTHETIC_FIXTURE_ONLY:collector-v1")
+        self.assertEqual(observer.INPUT_VERSION, "qsl.rates-context-input.research.v1")
+        self.assertEqual(observer.OBSERVATION_VERSION, "qsl.rates-context-observation.research.v1")
+
+    def test_v1_still_rejects_v2_and_first_seen_fields(self):
+        result = observer.build_rates_context_observation(forward_fixture(), config())
+        self.assertEqual(result["quality"]["status"], "unknown")
+        self.assertIn("INPUT_INVALID", result["series"]["nominal_10y"]["reason_codes"])
+        old = fixture()
+        old["series"]["nominal_10y"]["rows"][0]["first_seen_at"] = "2024-01-03T13:00:00Z"
+        result = observer.build_rates_context_observation(old, config())
+        self.assertIn("ROW_FIELDS_INVALID", result["series"]["nominal_10y"]["reason_codes"])
+
+    def test_v2_does_not_accept_v1_or_implicit_version_upgrade(self):
+        result = self.build(fixture())
+        self.assertEqual(result["quality"]["status"], "unknown")
+        self.assertIn("INPUT_INVALID", result["series"]["nominal_10y"]["reason_codes"])
+
+    def test_required_root_fields_and_exact_basis(self):
+        for key, value in (("collector_id", None), ("collector_id", ""),
+                           ("collector_id", " bad "), ("availability_basis", "publisher_time"),
+                           ("schema_version", "unknown"), ("decision_at", "2024-01-04T15:00:00")):
+            with self.subTest(key=key, value=value):
+                snapshot = forward_fixture()
+                snapshot[key] = value
+                self.assert_unknown(snapshot)
+        for key in ("collector_id", "availability_basis"):
+            snapshot = forward_fixture()
+            del snapshot[key]
+            self.assert_unknown(snapshot)
+
+    def test_publication_is_explicitly_unknown_and_never_available_at(self):
+        result = self.build()
+        end = result["series"]["nominal_10y"]["end_observation"]
+        self.assertIsNone(end["source_published_at"])
+        self.assertEqual(end["first_seen_at"], "2024-01-04T13:00:00Z")
+        self.assertEqual(end["received_at"], "2024-01-04T13:01:00Z")
+        self.assertEqual(end["known_at"], end["received_at"])
+        def walk(value):
+            if isinstance(value, dict):
+                self.assertNotIn("available_at", value)
+                self.assertNotIn("availability_delay_calendar_days", value)
+                for nested in value.values():
+                    walk(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    walk(nested)
+        walk(result)
+
+    def test_observation_and_consumer_latency_have_distinct_names(self):
+        nominal = self.build()["series"]["nominal_10y"]
+        self.assertEqual(nominal["first_seen_delay_calendar_days"], 1)
+        self.assertEqual(nominal["consumer_receipt_lag_seconds"], 60.0)
+        self.assertNotIn("receipt_lag_seconds", nominal)
+
+    def test_missing_or_nonnull_publication_is_unknown(self):
+        for value in ("2024-01-03T13:00:00Z", "", 0, False, object()):
+            snapshot = forward_fixture()
+            snapshot["series"]["nominal_10y"]["rows"][0]["source_published_at"] = value
+            self.assert_unknown(snapshot)
+        snapshot = forward_fixture()
+        del snapshot["series"]["nominal_10y"]["rows"][0]["source_published_at"]
+        self.assert_unknown(snapshot)
+
+    def test_missing_invalid_clock_or_digest_never_qualifies(self):
+        for key in ("first_seen_at", "received_at", "revision_id", "capture_sha256", "row_sha256"):
+            for value in (None, "", "latest", "bad"):
+                with self.subTest(key=key, value=value):
+                    snapshot = forward_fixture()
+                    snapshot["series"]["nominal_10y"]["rows"][0][key] = value
+                    if key == "revision_id" and value == "bad":
+                        continue  # Opaque immutable revision labels are declarations.
+                    self.assert_unknown(snapshot)
+            snapshot = forward_fixture()
+            del snapshot["series"]["nominal_10y"]["rows"][0][key]
+            self.assert_unknown(snapshot)
+
+    def test_digest_is_lowercase_sha256_shape_not_authenticated_evidence(self):
+        for key in ("capture_sha256", "row_sha256"):
+            for value in ("A" * 64, "g" * 64, "a" * 63, "a" * 65, True, 1):
+                snapshot = forward_fixture()
+                snapshot["series"]["nominal_10y"]["rows"][0][key] = value
+                self.assert_unknown(snapshot)
+
+    def test_receipt_before_first_seen_is_unknown(self):
+        snapshot = forward_fixture()
+        snapshot["series"]["nominal_10y"]["rows"][0]["received_at"] = "2024-01-03T12:59:59Z"
+        result = self.assert_unknown(snapshot)
+        self.assertIn("RECEIPT_BEFORE_FIRST_SEEN", result["series"]["nominal_10y"]["reason_codes"])
+        self.assertIsNone(result["series"]["nominal_10y"]["start_observation"]["known_at"])
+
+    def test_first_seen_before_observation_date_is_unknown(self):
+        snapshot = forward_fixture()
+        snapshot["series"]["nominal_10y"]["rows"][0]["first_seen_at"] = "2024-01-01T23:59:59Z"
+        self.assert_unknown(snapshot)
+
+    def test_exact_arrival_boundary_and_before_first_seen(self):
+        snapshot = forward_fixture()
+        for series in snapshot["series"].values():
+            for row in series["rows"]:
+                row["first_seen_at"] = row["received_at"] = "2024-01-04T15:00:00Z"
+        self.assertEqual(self.build(snapshot)["quality"]["status"], "declared_available")
+        snapshot["decision_at"] = "2024-01-04T14:59:59.999999Z"
+        result = self.build(snapshot)
+        self.assertEqual(result["series"]["nominal_10y"]["visible_observations"], 0)
+        self.assertEqual(result["quality"]["status"], "unknown")
+
+    def test_old_observation_can_be_known_now_without_backdated_visibility(self):
+        snapshot = forward_fixture()
+        snapshot["decision_at"] = "2024-01-10T15:00:00Z"
+        policy = config()
+        policy["max_observation_age_days"] = 20
+        for series in snapshot["series"].values():
+            for row in series["rows"]:
+                row["first_seen_at"] = row["received_at"] = "2024-01-10T14:00:00Z"
+        result = self.build(snapshot, policy)
+        self.assertEqual(result["quality"]["status"], "declared_available")
+        self.assertFalse(result["historical_pit_verified"])
+        snapshot["decision_at"] = "2024-01-09T15:00:00Z"
+        self.assertEqual(self.build(snapshot, policy)["series"]["nominal_10y"]["visible_observations"], 0)
+
+    def test_today_receipt_never_refreshes_observation_age(self):
+        snapshot = forward_fixture()
+        snapshot["decision_at"] = "2024-01-10T15:00:00Z"
+        for series in snapshot["series"].values():
+            for row in series["rows"]:
+                row["first_seen_at"] = row["received_at"] = snapshot["decision_at"]
+        result = self.assert_unknown(snapshot)
+        self.assertIn("OBSERVATION_STALE", result["series"]["nominal_10y"]["reason_codes"])
+
+    def test_future_or_late_append_preserves_entire_observation(self):
+        for selector in ("first_seen_at", "received_at", "outside_window"):
+            snapshot = forward_fixture()
+            expected = self.build(snapshot)
+            row = {"observation_date": "2024-01-02", "value": object(), "extra": object()}
+            if selector == "outside_window":
+                row["observation_date"] = "2024-01-08"
+            else:
+                row[selector] = "2024-01-05T00:00:00Z"
+            snapshot["series"]["nominal_10y"]["rows"].append(row)
+            self.assertEqual(self.build(snapshot), expected)
+
+    def test_future_observation_inside_requested_window_is_invisible(self):
+        snapshot, policy = forward_fixture(), config()
+        policy["window_end"] = "2024-01-08"
+        expected = self.build(snapshot, policy)
+        snapshot["series"]["nominal_10y"]["rows"].append({"observation_date": "2024-01-08", "value": object()})
+        self.assertEqual(self.build(snapshot, policy), expected)
+
+    def test_invalid_selector_cannot_claim_invisibility(self):
+        for key in ("observation_date", "first_seen_at", "received_at"):
+            snapshot = forward_fixture()
+            snapshot["series"]["nominal_10y"]["rows"][0][key] = "bad"
+            self.assert_unknown(snapshot)
+
+    def test_same_day_two_visible_versions_and_exact_duplicates_are_unknown(self):
+        for changed in (False, True):
+            snapshot = forward_fixture()
+            repeated = copy.deepcopy(snapshot["series"]["nominal_10y"]["rows"][-1])
+            if changed:
+                repeated["revision_id"] = "synthetic-v2"
+                repeated["value"] = 8.0
+                repeated["row_sha256"] = "f" * 64
+            snapshot["series"]["nominal_10y"]["rows"].append(repeated)
+            result = self.assert_unknown(snapshot)
+            self.assertIn("ROW_ORDER_OR_REVISION_AMBIGUOUS", result["series"]["nominal_10y"]["reason_codes"])
+            self.assertIsNone(result["series"]["nominal_10y"]["end_observation"])
+
+    def test_same_revision_or_content_hash_conflict_is_unknown(self):
+        snapshot = forward_fixture()
+        repeated = copy.deepcopy(snapshot["series"]["nominal_10y"]["rows"][-1])
+        repeated["value"] = 8.0
+        snapshot["series"]["nominal_10y"]["rows"].append(repeated)
+        result = self.assert_unknown(snapshot)
+        self.assertIn("ROW_IDENTITY_CONFLICT", result["series"]["nominal_10y"]["reason_codes"])
+        snapshot = forward_fixture()
+        source_rows = snapshot["series"]["nominal_10y"]["rows"]
+        source_rows[1]["row_sha256"] = source_rows[0]["row_sha256"]
+        result = self.assert_unknown(snapshot)
+        self.assertIn("ROW_IDENTITY_CONFLICT", result["series"]["nominal_10y"]["reason_codes"])
+
+    def test_shared_capture_hash_is_allowed_for_different_rows(self):
+        result = self.build()
+        self.assertEqual(result["series"]["nominal_10y"]["status"], "declared_available")
+
+    def test_repeated_call_preserves_declared_first_seen_and_capture_reference(self):
+        snapshot = forward_fixture()
+        expected = self.build(snapshot)
+        self.assertEqual(self.build(copy.deepcopy(snapshot)), expected)
+        endpoint = expected["series"]["nominal_10y"]["start_observation"]
+        self.assertEqual(endpoint["capture_sha256"], snapshot["series"]["nominal_10y"]["rows"][0]["capture_sha256"])
+
+    def test_visible_reverse_order_is_not_repaired(self):
+        snapshot = forward_fixture()
+        snapshot["series"]["nominal_10y"]["rows"].reverse()
+        self.assert_unknown(snapshot)
+
+    def test_partial_evidence_does_not_erase_other_series(self):
+        snapshot = forward_fixture()
+        snapshot["series"]["nominal_10y"]["rows"][0]["first_seen_at"] = None
+        result = self.assert_unknown(snapshot)
+        self.assertEqual(result["series"]["real_10y"]["status"], "declared_available")
+        self.assertEqual(result["approximate_yield_spread"]["status"], "unknown")
+
+    def test_missing_reported_breakeven_keeps_pair_and_approximate_spread(self):
+        snapshot = forward_fixture()
+        del snapshot["series"]["breakeven_10y"]
+        result = self.build(snapshot)
+        self.assertEqual(result["series"]["nominal_10y"]["change_bp"], 20.0)
+        self.assertEqual(result["series"]["real_10y"]["change_bp"], 10.0)
+        self.assertEqual(result["approximate_yield_spread"]["change_bp"], 10.0)
+        self.assertEqual(result["series"]["breakeven_10y"]["status"], "unknown")
+        self.assertEqual(result["quality"]["status"], "unknown")
+
+    def test_independent_breakeven_not_replaced_and_negative_yield_valid(self):
+        result = self.build()
+        self.assertEqual(result["series"]["breakeven_10y"]["end_percent"], 2.9)
+        self.assertEqual(result["approximate_yield_spread"]["end_percent"], 3.1)
+        snapshot = forward_fixture()
+        for row, value in zip(snapshot["series"]["real_10y"]["rows"], (-1.0, -0.5)):
+            row["value"] = value
+        self.assertEqual(self.build(snapshot)["series"]["real_10y"]["change_bp"], 50.0)
+
+    def test_source_basis_unit_and_role_identity_still_apply(self):
+        for key, value in (("unit", "ratio"), ("basis", "price"), ("source_id", None)):
+            snapshot = forward_fixture()
+            snapshot["series"]["nominal_10y"][key] = value
+            self.assert_unknown(snapshot)
+        snapshot = forward_fixture()
+        snapshot["series"]["real_10y"]["source_id"] = "other_source"
+        self.assertEqual(self.build(snapshot)["approximate_yield_spread"]["status"], "unknown")
+        snapshot = forward_fixture()
+        snapshot["series"]["real_10y"]["series_id"] = snapshot["series"]["nominal_10y"]["series_id"]
+        self.assert_unknown(snapshot)
+
+    def test_malformed_rows_and_nonfinite_values_do_not_produce_numbers(self):
+        for value in (float("nan"), float("inf"), True, "4.0", 10 ** 1000):
+            snapshot = forward_fixture()
+            snapshot["series"]["nominal_10y"]["rows"][0]["value"] = value
+            result = self.assert_unknown(snapshot)
+            json.dumps(result, allow_nan=False)
+        for value in ("not_rows", None, {}):
+            snapshot = forward_fixture()
+            snapshot["series"]["nominal_10y"]["rows"] = value
+            self.assert_unknown(snapshot)
+
+    def test_extra_ai_or_authority_fields_never_enter_contract(self):
+        for key in ("ai_narrative", "target_weight", "position_control_allowed", "opportunity"):
+            snapshot = forward_fixture()
+            snapshot[key] = True
+            result = self.assert_unknown(snapshot)
+            self.assertFalse(result["position_control_allowed"])
+        snapshot = forward_fixture()
+        snapshot["series"]["nominal_10y"]["rows"][0]["available_at"] = "2024-01-02T00:00:00Z"
+        self.assert_unknown(snapshot)
+
+    def test_timezone_normalization(self):
+        snapshot = forward_fixture()
+        row = snapshot["series"]["nominal_10y"]["rows"][-1]
+        row["first_seen_at"], row["received_at"] = "2024-01-04T08:00:00-05:00", "2024-01-04T08:01:00-05:00"
+        self.assertEqual(self.build(snapshot), self.build())
+
+    def test_no_source_or_runtime_authority_and_inputs_unchanged(self):
+        snapshot, policy = forward_fixture(), config()
+        before = copy.deepcopy((snapshot, policy))
+        result = self.build(snapshot, policy)
+        self.assertEqual((snapshot, policy), before)
+        json.dumps(result, allow_nan=False)
+        self.assertEqual(result["assurance"], "CALLER_DECLARATIONS_AND_CONSISTENCY_ONLY")
+        self.assertEqual(result["research_status"], "UNVALIDATED_RESEARCH")
+        for key in ("historical_pit_verified", "backtest_eligible", "position_control_allowed"):
+            self.assertIs(result[key], False)
+
+    def test_invalid_config_uses_existing_error(self):
+        policy = config()
+        policy["max_observation_age_days"] = -1
+        with self.assertRaises(observer.ContractError):
+            self.build(policy=policy)
+
+
+    def test_submicrosecond_arrival_cannot_be_truncated_into_visibility(self):
+        snapshot = forward_fixture()
+        snapshot["decision_at"] = "2024-01-04T15:00:00Z"
+        for series in snapshot["series"].values():
+            for row in series["rows"]:
+                row["first_seen_at"] = row["received_at"] = "2024-01-04T15:00:00.0000001Z"
+        self.assert_unknown(snapshot)
+
+    def test_submicrosecond_clock_reversal_is_not_rounded_equal(self):
+        snapshot = forward_fixture()
+        row = snapshot["series"]["nominal_10y"]["rows"][-1]
+        row["first_seen_at"] = "2024-01-04T13:00:00.0000009Z"
+        row["received_at"] = "2024-01-04T13:00:00.0000001Z"
+        self.assert_unknown(snapshot)
+
+    def test_v2_rejects_unsupported_precision_or_normalized_invalid_offsets(self):
+        for value in ("2024-01-04T15:00:00.1234567Z", "2024-01-04T15:00:00+01:60",
+                      "2024-01-04T15:00:00+00:00:00.0000001",
+                      "2024-01-04T15:00:00.0000000Z", "2024-01-04T15:00:00,1Z"):
+            for field in ("decision_at", "first_seen_at", "received_at"):
+                with self.subTest(field=field, value=value):
+                    snapshot = forward_fixture()
+                    if field == "decision_at":
+                        snapshot[field] = value
+                    else:
+                        snapshot["series"]["nominal_10y"]["rows"][-1][field] = value
+                    self.assert_unknown(snapshot)
+
+    def test_microsecond_boundary_remains_exact(self):
+        snapshot = forward_fixture()
+        snapshot["decision_at"] = "2024-01-04T15:00:00.000001Z"
+        for series in snapshot["series"].values():
+            for row in series["rows"]:
+                row["first_seen_at"] = row["received_at"] = snapshot["decision_at"]
+        self.assertEqual(self.build(snapshot)["quality"]["status"], "declared_available")
+        snapshot["decision_at"] = "2024-01-04T15:00:00.000000Z"
+        self.assertEqual(self.build(snapshot)["series"]["nominal_10y"]["visible_observations"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

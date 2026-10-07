@@ -1,6 +1,6 @@
 # Ten-year rates context observation research
 
-Status: `UNVALIDATED_RESEARCH`. This is one source-agnostic, standard-library pure observation function. It is not a downloader, enabled plugin, strategy policy, or production adoption. Existing modules, package exports, runner/catalog entries, wide external-context CSVs, defaults, dependencies, and runtime pins are unchanged.
+Status: `UNVALIDATED_RESEARCH`. This module has source-agnostic, standard-library pure observation entry points. It is not a downloader, enabled plugin, strategy policy, or production adoption. Existing modules, package exports, runner/catalog entries, wide external-context CSVs, defaults, dependencies, and runtime pins are unchanged.
 
 [中文合同](rates-context-observer-research.zh-CN.md)
 
@@ -10,7 +10,7 @@ Status: `UNVALIDATED_RESEARCH`. This is one source-agnostic, standard-library pu
 
 The existing wide CSV merge coerces each column to numeric values. It cannot preserve this contract's source, revision, or publication metadata; do not insert these records into that merge and assume provenance survives. This module neither extends `DEFAULT_FRED_SERIES` nor modifies macro watch/actionable scoring.
 
-## Input and configuration
+## Existing v1 input and configuration
 
 The input has exactly `schema_version=qsl.rates-context-input.research.v1`, `decision_at`, and `series`. `decision_at` is the actual evaluation/receipt decision time declared by the caller, with an explicit ISO timezone. `series` contains only the optional roles `nominal_10y`, `real_10y`, and `breakeven_10y`; a missing role yields explicit unknown. All three roles are ten-year measurements, not ETF prices or another tenor relabeled as ten-year.
 
@@ -72,3 +72,97 @@ Focused tests can run with `python -m unittest discover -s tests -p test_rates_c
 Synthetic coverage includes percent-to-bp arithmetic, independent breakeven, individual source delays, negative yields, future-row/revision invariance, missing publication/receipt evidence, today's import of old data, nonfinite/Boolean/string values, wrong units, mixed sources/methodologies, reversed dates, visible duplicate revisions, wrong/missing endpoints, stale observations, invalid configuration, strict JSON, input immutability, and absent trading fields.
 
 This is a preparation step. A future authorized collector/consumer integration must retain the row-level evidence rather than using the lossy wide CSV, then validate genuine source coverage/availability, strategy-specific economic usefulness, and approved consumption. Historical breadth membership/prices and NDX participation are separate gaps; this phase implements neither breadth nor an NDX proxy. No runtime adoption follows from a pure function or passing synthetic tests.
+
+## Explicit forward-known v2 entry point
+
+build_rates_context_observation_v2(snapshot, config) is a separate pure entry
+point in the same module. It accepts only qsl.rates-context-input.research.v2
+and returns qsl.rates-context-observation.research.v2. The original v1 entry
+point, constants, input/output semantics and rejection behavior remain unchanged.
+Neither entry point automatically upgrades the other's input. V2 never substitutes
+first-seen for v1 available_at.
+
+The v2 root has exactly schema_version, availability_basis, collector_id,
+decision_at and series. availability_basis is collector_first_seen. collector_id
+identifies the collector to which the declared first-seen time belongs: a nonempty,
+whitespace-trimmed string of at most 256 characters. Existing source/series/basis,
+percent-unit roles and explicit v1 window/age configuration are reused. There is
+no MSS family, catalog or runtime consumer registration.
+
+Each v2 row has exactly:
+
+- observation_date, value, revision_id
+- source_published_at: explicitly null, never omitted or inferred
+- first_seen_at: when the named collector first completely received this declared semantic row version
+- received_at: when the research consumer received that fixed version
+- capture_sha256: the declared hash of the original complete response retained when the row version was first seen
+- row_sha256: the producer's declared immutable row-content reference
+
+Both hashes require lowercase 64-hex syntax. The observer does not read the
+response, recompute either hash, authenticate origin or clocks, establish an
+earliest capture, or verify the producer's hashing algorithm. These are references
+and consistency checks, not historical PIT proof. The collector retains original
+bytes/capture records externally. Repeated downloads must not refresh an old
+first_seen or replace its first-capture reference with the latest whole-file hash.
+Corrections require separately retained versions; old accepted decisions are not
+rewritten. This stateless function cannot enforce those rules across calls.
+
+### Time projection and visible conflicts
+
+V2 timestamps require YYYY-MM-DDTHH:MM:SS, optionally 1–6 fractional second
+digits, followed by Z or ±HH:MM (offset hours <=23, minutes <=59). Greater
+precision, comma fractions and second-bearing offsets are unsupported and remain
+unknown; times are never truncated or rounded. Valid timestamps normalize to UTC.
+Selected rows require
+first_seen_at <= received_at <= decision_at; the UTC first-seen date cannot
+precede the observation date. known_at is the later first-seen/receipt time,
+which equals receipt under valid ordering. It is not a publication timestamp.
+
+Dates outside the explicit window, future observation dates, and rows whose
+first-seen or receipt is later than the decision are excluded before non-selector
+fields. Hidden rows cannot affect counts, validation, identities, endpoint records
+or numeric results. An unparseable selector cannot prove invisibility and produces
+unknown unless another valid selector has already excluded the row.
+
+Visible rows retain strict chronological order. Two rows for one date, including
+exact repeats, are ambiguous: no sorting, deduplication, latest-wins or revision
+selection. A duplicated endpoint has no selected endpoint metadata. Conflicting
+content or timing under one observation/revision identity is unknown. Reuse of one
+row hash for different observation dates or values within a series is unknown.
+One capture hash may legitimately cover multiple different rows.
+
+An old observation first captured today may be known today when its explicit
+window/age policy permits it. It is never visible to an earlier decision. Age stays
+observation-date age, not capture/receipt age; today's import does not refresh it.
+
+### Output and assurance
+
+V2 preserves collector/basis and each unambiguous endpoint's null publication,
+first-seen, receipt, known-at, revision and hash references. There is no available_at
+field. first_seen_delay_calendar_days compares date labels;
+consumer_receipt_lag_seconds measures first-seen-to-consumer receipt. Neither is
+source-publication latency or market-close-to-publication latency.
+
+Missing/invalid fields, identities, times, nonfinite values, visible conflicts,
+wrong roles/bases/units, stale observations or unavailable exact endpoints produce
+unknown and no numeric change. Invalid configuration retains ContractError.
+AI, opportunity and control fields are outside this exact input contract.
+
+The same-source nominal/real approximate spread remains separate from independent
+reported breakeven. Missing breakeven does not erase valid nominal/real declaration
+facts or a valid pair difference; overall quality remains unknown. Every output
+retains UNVALIDATED_RESEARCH, CALLER_DECLARATIONS_AND_CONSISTENCY_ONLY,
+historical_pit_verified=false, backtest_eligible=false and
+position_control_allowed=false.
+
+This is offline contract preparation. Actual capture, source rights, retained
+source bytes, genuine first-seen clocks, forward history, economic qualification
+and approved consumption remain unverified. A later separately reviewed MSS
+adapter can consume fixed v2 fields without changing v1. Real collection/adoption
+need their own evidence; pre-collection historical availability is not recreated.
+
+The existing focused unittest command runs original v1 plus synthetic v2 cases:
+version/collector gates, arrival boundaries, old-date visibility without backdating,
+stale age, hidden future/revision invariance, visible ambiguity, hash-reference
+consistency, partial series, absent independent breakeven, strict JSON and unchanged
+inputs. Pure tests do not prove external first-seen persistence.

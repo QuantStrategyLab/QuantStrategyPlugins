@@ -61,3 +61,5 @@ it does not call a model or verify production authentication.
 ## License
 
 See [LICENSE](LICENSE).
+
+Legacy Codex CLI audit transport is retired. A configured Codex endpoint makes the audit unavailable before any SDK call or API fallback. Deterministic signals and all capital/execution restrictions remain unchanged. Consumers must qualify a task-service migration before adopting this runtime change; no replacement provider is enabled here.

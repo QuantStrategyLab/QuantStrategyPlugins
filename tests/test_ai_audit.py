@@ -1,7 +1,6 @@
 import sys
 import types
 import json
-import io
 import tomllib
 from importlib.metadata import distribution
 from pathlib import Path
@@ -75,54 +74,6 @@ def test_optional_ai_extra_installs_the_declared_gateway_sdk() -> None:
     assert GatewayConfig.__module__ == "ai_gateway_client.config"
 
 
-@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
-def test_installed_sdk_consumes_codex_job_without_feedback_or_api_fallback(monkeypatch, entry):
-    from ai_gateway_client import gateway_client
-
-    _clear_ai_audit_env(monkeypatch)
-    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
-    monkeypatch.setenv("AI_GATEWAY_SOURCE_REPO", "QuantStrategyLab/UsEquitySnapshotPipelines")
-    monkeypatch.setattr(gateway_client, "_fetch_oidc_token", lambda _audience: "synthetic")
-    monkeypatch.setattr(gateway_client.time, "sleep", lambda _seconds: None)
-    calls = []
-    job_id = "synthetic-job-000000000000"
-
-    def urlopen(request, **_kwargs):
-        calls.append((request.get_method(), request.full_url))
-        if request.get_method() == "POST":
-            assert request.full_url == "https://gateway.invalid/v1/ai/execute/jobs"
-            payload = json.loads(request.data)
-            assert payload["mode"] == "review_only"
-            assert payload["model"] == "gpt-6-astra"
-            assert payload["source_repository"] == "QuantStrategyLab/UsEquitySnapshotPipelines"
-            assert "watch_only" in payload["prompt"]
-            response = {"status": "queued", "job_id": job_id}
-        else:
-            assert request.full_url == f"https://gateway.invalid/v1/ai/execute/jobs/{job_id}"
-            response = {"status": "succeeded", "output": json.dumps({
-                "verdict": "review", "confidence": 0.8, "summary": "synthetic research opinion",
-                "mode": "live", "execution_controls": {"broker_order_allowed": True},
-            })}
-        return io.BytesIO(json.dumps(response).encode())
-
-    monkeypatch.setattr(gateway_client.urllib.request, "urlopen", urlopen)
-    feedback = []
-    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", lambda **fields: feedback.append(fields))
-    deterministic = {"profile": "synthetic", "canonical_route": "no_action", "suggested_action": "watch_only"}
-    payload = entry(deterministic, enabled=True, codex_enabled=True, codex_model="gpt-6-astra")
-
-    assert payload["status"] == "advisory"
-    assert payload["summary"] == "synthetic research opinion"
-    assert payload["deterministic_route"] == "no_action"
-    assert payload["final_route_unchanged"] is True
-    assert payload["mode"] == "shadow_only"
-    assert payload["execution_controls"]["broker_order_allowed"] is False
-    assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
-    assert payload["execution_controls"]["allocation_recommendation_allowed"] is False
-    assert len(payload["attempts"]) == 1
-    assert [method for method, _url in calls] == ["POST", "GET"]
-    assert feedback == []
-    assert deterministic["canonical_route"] == "no_action"
 
 
 def test_ai_audit_uses_generic_anthropic_api_key(monkeypatch) -> None:
@@ -235,7 +186,7 @@ def test_gateway_uses_default_model_without_local_provider_key(monkeypatch) -> N
     assert calls == [("openai", "gpt-5.4-mini")]
 
 
-def test_gateway_success_calls_analyze_and_execute(monkeypatch) -> None:
+def test_gateway_analysis_remains_available_but_codex_execution_is_retired(monkeypatch) -> None:
     calls: list[tuple[str, tuple, dict]] = []
 
     class SuccessfulGatewayClient:
@@ -260,64 +211,13 @@ def test_gateway_success_calls_analyze_and_execute(monkeypatch) -> None:
     )
 
     assert _llm_via_gateway("audit", "gpt-test", "openai", 3.0) == ("analysis", False)
-    assert _codex_via_gateway("review", "codex-test", 4.0) == "review"
+    with pytest.raises(AiAuditError, match="legacy_cli_retired"):
+        _codex_via_gateway("review", "codex-test", 4.0)
     assert calls == [
         ("analyze", ("audit",), {"model": "gpt-test", "timeout": 3.0}),
-        ("execute", ("review",), {"mode": "review_only", "model": "codex-test", "timeout": 4.0}),
     ]
 
 
-@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
-def test_codex_execution_is_advisory_without_feedback_or_route_changes(monkeypatch, entry):
-    from copy import deepcopy
-
-    _clear_ai_audit_env(monkeypatch)
-    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
-    output = json.dumps({
-        "verdict": "review", "confidence": 0.8, "summary": "synthetic research opinion",
-        "status": "verified", "final_route_unchanged": False, "mode": "live",
-        "execution_controls": {"broker_order_allowed": True},
-    })
-    calls = []
-
-    class SuccessfulCodexClient:
-        def __init__(self, _config):
-            pass
-
-        def execute(self, prompt, **kwargs):
-            calls.append((prompt, kwargs))
-            return types.SimpleNamespace(success=True, output=output, provider="codex")
-
-        def analyze(self, *_args, **_kwargs):
-            raise AssertionError("Codex advisory must not fall back to a paid API")
-
-    monkeypatch.setitem(sys.modules, "ai_gateway_client", types.SimpleNamespace(
-        AiGatewayClient=SuccessfulCodexClient,
-        GatewayConfig=types.SimpleNamespace(from_env=lambda: object()),
-    ))
-    feedback = []
-    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", lambda **fields: feedback.append(fields))
-    deterministic = {"profile": "synthetic", "canonical_route": "no_action", "suggested_action": "watch_only"}
-    original = deepcopy(deterministic)
-
-    payload = entry(deterministic, enabled=True, codex_enabled=True, codex_model="codex-test")
-
-    assert payload["status"] == "advisory"
-    assert payload["summary"] == "synthetic research opinion"
-    assert payload["confidence"] == 0.8
-    assert len(calls) == 1
-    assert calls[0][1]["mode"] == "review_only"
-    assert calls[0][1]["model"] == "codex-test"
-    assert len(payload["attempts"]) == 1
-    assert payload["attempts"][0]["status"] == "advisory"
-    assert payload["selected_endpoint"]["provider"] == "codex"
-    assert feedback == []
-    assert deterministic == original
-    assert payload["final_route_unchanged"] is True
-    assert payload["mode"] == "shadow_only"
-    assert payload["execution_controls"]["broker_order_allowed"] is False
-    assert payload["execution_controls"]["live_allocation_mutation_allowed"] is False
-    assert payload["execution_controls"]["allocation_recommendation_allowed"] is False
 
 
 @pytest.mark.parametrize("actual_provider", ["anthropic", ""])
@@ -371,7 +271,7 @@ def test_gateway_failure_never_uses_direct_fallback(monkeypatch, gateway_call, d
     direct_calls: list[str] = []
     monkeypatch.setattr(ai_audit, direct_fallback, lambda *_args: direct_calls.append("direct") or "{}", raising=False)
 
-    with pytest.raises(AiAuditError, match="ai_gateway_request_failed") as exc_info:
+    with pytest.raises(AiAuditError, match="ai_gateway_request_failed" if gateway_call is _llm_via_gateway else "legacy_cli_retired") as exc_info:
         if gateway_call is _llm_via_gateway:
             gateway_call("audit", "test-model", "openai", 1.0)
         else:
@@ -393,7 +293,7 @@ def test_gateway_client_import_failure_never_uses_direct_fallback(monkeypatch, g
     direct_calls: list[str] = []
     monkeypatch.setattr(ai_audit, direct_fallback, lambda *_args: direct_calls.append("direct") or "{}", raising=False)
 
-    with pytest.raises(AiAuditError, match="ai_gateway_client_unavailable"):
+    with pytest.raises(AiAuditError, match="ai_gateway_client_unavailable" if gateway_call is _llm_via_gateway else "legacy_cli_retired"):
         if gateway_call is _llm_via_gateway:
             gateway_call("audit", "test-model", "openai", 1.0)
         else:
@@ -530,3 +430,24 @@ def test_original_prompts_distinguish_false_zero_and_missing(builder, boolean_fi
     assert user["data_freshness"] == "0"
     assert user["as_of"] == ""
     assert source == {**dict.fromkeys(boolean_fields, False), "data_freshness": 0}
+
+
+@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+@pytest.mark.parametrize("provider", ["codex", " CoDeX "])
+def test_retired_codex_route_never_calls_sdk_or_paid_fallback(monkeypatch, entry, provider):
+    from unittest.mock import Mock
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
+    monkeypatch.setattr(ai_audit, "build_ai_audit_endpoints", lambda **_: (
+        ai_audit.AiAuditEndpoint("codex", "", provider=provider),
+        ai_audit.AiAuditEndpoint("primary", "synthetic", provider="openai"),
+    ))
+    complete, feedback = Mock(), Mock()
+    monkeypatch.setattr(ai_audit, "_complete_with_endpoint", complete)
+    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", feedback)
+    source = {"profile": "synthetic", "canonical_route": "no_action"}
+    result = entry(source, enabled=True)
+    assert result["status"] == "failed" and result["error"] == "legacy_cli_retired"
+    assert result["attempts"] == [] and result["final_route_unchanged"] is True
+    assert result["execution_controls"]["broker_order_allowed"] is False
+    complete.assert_not_called()
+    feedback.assert_not_called()

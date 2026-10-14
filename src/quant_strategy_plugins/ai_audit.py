@@ -324,21 +324,8 @@ def _complete_with_endpoint(
 
 
 def _codex_via_gateway(prompt: str, model: str, timeout_seconds: float) -> str:
-    """Execute via AiGateway service — delegates to CodexAdapter on VPS."""
-    try:
-        from ai_gateway_client import AiGatewayClient, GatewayConfig
-        config = GatewayConfig.from_env()
-        client = AiGatewayClient(config)
-        result = client.execute(prompt, mode="review_only", model=model, timeout=timeout_seconds)
-        if result.success and str(result.output or "").strip():
-            return str(result.output)
-        raise AiAuditError("ai_gateway_rejected")
-    except ImportError:
-        raise AiAuditError("ai_gateway_client_unavailable") from None
-    except AiAuditError:
-        raise
-    except Exception:
-        raise AiAuditError("ai_gateway_request_failed") from None
+    """Retired legacy Codex endpoint; never start a CLI or send a job."""
+    raise AiAuditError("legacy_cli_retired")
 
 
 def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: float) -> tuple[str, bool]:
@@ -680,6 +667,9 @@ def _run_ai_audit(
             "skip_reason": "missing_api_endpoint",
             "attempts": [],
         }
+
+    if any(endpoint.normalized().provider == PROVIDER_CODEX for endpoint in endpoints):
+        return {**base_payload, "status": "failed", "error": "legacy_cli_retired", "attempts": []}
 
     attempts: list[dict[str, Any]] = []
     for endpoint in endpoints:

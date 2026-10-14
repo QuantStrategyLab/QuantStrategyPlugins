@@ -1,7 +1,6 @@
 import sys
 import types
 import json
-import io
 import tomllib
 from importlib.metadata import distribution
 from pathlib import Path

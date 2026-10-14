@@ -369,7 +369,7 @@ def test_gateway_failure_never_uses_direct_fallback(monkeypatch, gateway_call, d
         ),
     )
     direct_calls: list[str] = []
-    monkeypatch.setattr(ai_audit, direct_fallback, lambda *_args: direct_calls.append("direct") or "{}")
+    monkeypatch.setattr(ai_audit, direct_fallback, lambda *_args: direct_calls.append("direct") or "{}", raising=False)
 
     with pytest.raises(AiAuditError, match="ai_gateway_request_failed") as exc_info:
         if gateway_call is _llm_via_gateway:
@@ -391,7 +391,7 @@ def test_gateway_failure_never_uses_direct_fallback(monkeypatch, gateway_call, d
 def test_gateway_client_import_failure_never_uses_direct_fallback(monkeypatch, gateway_call, direct_fallback) -> None:
     monkeypatch.setitem(sys.modules, "ai_gateway_client", None)
     direct_calls: list[str] = []
-    monkeypatch.setattr(ai_audit, direct_fallback, lambda *_args: direct_calls.append("direct") or "{}")
+    monkeypatch.setattr(ai_audit, direct_fallback, lambda *_args: direct_calls.append("direct") or "{}", raising=False)
 
     with pytest.raises(AiAuditError, match="ai_gateway_client_unavailable"):
         if gateway_call is _llm_via_gateway:

@@ -374,23 +374,10 @@ def _llm_via_gateway(prompt: str, model: str, provider: str, timeout_seconds: fl
         raise AiAuditError("ai_gateway_request_failed") from None
 
 
-def _llm_direct(prompt: str, model: str, provider: str, timeout_seconds: float) -> str:
-    del prompt, model, provider, timeout_seconds
-    raise AiAuditError("direct_ai_completion_forbidden")
 
 
-def _codex_exec_direct(prompt: str, timeout_seconds: float) -> str:
-    del prompt, timeout_seconds
-    raise AiAuditError("direct_ai_completion_forbidden")
 
 
-def _codex_exec_completion(
-    endpoint: AiAuditEndpoint,
-    messages: Sequence[Mapping[str, str]],
-    timeout_seconds: float,
-) -> str:
-    del endpoint, messages, timeout_seconds
-    raise AiAuditError("direct_ai_completion_forbidden")
 
 
 def _extract_json_object(value: str | Mapping[str, Any]) -> dict[str, Any]:

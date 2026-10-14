@@ -229,7 +229,7 @@ def test_shadow_signal_ai_audit_skips_without_gateway(monkeypatch) -> None:
     assert payload["ai_audit"]["final_route_unchanged"] is True
 
 
-def test_shadow_signal_ai_audit_prefers_gateway_codex_provider(monkeypatch) -> None:
+def test_shadow_signal_ai_audit_blocks_retired_codex_provider(monkeypatch) -> None:
     monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
     prices = _financial_crisis_prices()
     as_of = str(pd.to_datetime(prices["as_of"]).max().date())
@@ -261,10 +261,11 @@ def test_shadow_signal_ai_audit_prefers_gateway_codex_provider(monkeypatch) -> N
     )
 
     audit = payload["ai_audit"]
-    assert calls == [("codex", "codex")]
-    assert audit["status"] == "ok"
-    assert audit["selected_endpoint"]["provider"] == "codex"
-    assert audit["verdict"] == "agree"
+    assert calls == []
+    assert audit["status"] == "failed"
+    assert audit["error"] == "legacy_cli_retired"
+    assert audit["final_route_unchanged"] is True
+    assert audit["execution_controls"]["broker_order_allowed"] is False
 
 
 def test_shadow_signal_evidence_uses_configured_benchmark_drawdown() -> None:

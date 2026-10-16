@@ -20,8 +20,17 @@ QuantStrategyPlugins 提供 sidecar 策略插件：市场状态控制、shadow �
 
 需要 Python 3.11 或更高版本。
 
+最小运行时安装（仅库与插件 runner，不含可选的 AI 审阅客户端）：
+
 ```bash
-python -m pip install -e '.[test]'
+python -m pip install .
+```
+
+完整测试：测试会导入可选的 AI 审阅客户端，因此需安装 `test` 与 `ai` extra
+以匹配 CI（`.github/workflows/ci.yml`），再运行 pytest：
+
+```bash
+python -m pip install -e '.[test,ai]'
 python -m pytest -q
 ```
 
@@ -31,7 +40,7 @@ python -m pytest -q
 qsp-run-strategy-plugins --help
 ```
 
-默认安装不包含可选的 AI 审阅客户端。只有需要该客户端时才安装 `.[ai]`；它会加入固定版本的 AI gateway 客户端，但不会启用审阅、配置凭据或授予执行权限。
+`ai` extra 会加入固定版本的 AI gateway 客户端；安装它不会启用审阅、配置凭据或授予执行权限。
 
 ## 配置
 

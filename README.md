@@ -28,8 +28,19 @@ orders. It does not grant execution authority.
 
 Requires Python 3.11 or newer.
 
+Minimal runtime install (library and plugin runner only, without the optional
+AI audit client):
+
 ```bash
-python -m pip install -e '.[test]'
+python -m pip install .
+```
+
+Full test suite. The tests import the optional AI audit client, so install the
+`test` and `ai` extras to match CI (`.github/workflows/ci.yml`), then run
+pytest:
+
+```bash
+python -m pip install -e '.[test,ai]'
 python -m pytest -q
 ```
 
@@ -40,9 +51,8 @@ Inspect the plugin runner options. The runner reads a TOML config passed with
 qsp-run-strategy-plugins --help
 ```
 
-The default install does not include the optional AI audit client. Install
-`.[ai]` only if you use that client; it adds the pinned AI gateway client but
-does not enable audits, configure credentials, or grant execution authority.
+The `ai` extra adds the pinned AI gateway client; installing it does not enable
+audits, configure credentials, or grant execution authority.
 
 ## Configuration
 

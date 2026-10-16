@@ -1,58 +1,75 @@
 # QuantStrategyPlugins
 
-[English README](README.md)
+输出与 QuantPlatformKit 兼容的信号产物的 sidecar 策略插件包。
 
-> 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
+[English](README.md) | 简体中文
 
-## 这个仓库是什么
+## 状态
 
-QuantStrategyPlugins 是 QuantStrategyLab 的策略插件包。提供 market-regime control、通知 artifact 和研究侧 plugin 输出等 sidecar 策略插件。
+实验性项目，使用风险自负。本项目不构成投资建议，也不保证任何交易结果。它的输出是研究证据，不是交易指令。
 
-它支撑系统运行，但不决定哪个策略应该 live。策略资格由策略仓和 snapshot 仓负责；券商执行由平台仓负责。
+## 简介
 
-## QSL 架构角色
+QuantStrategyPlugins 提供 sidecar 策略插件：市场状态控制、shadow 信号和仅研究的输出。每个插件输出一个 QuantPlatformKit 消费方可读取的信号信封。插件在本地基于价格历史运行并写出产物，让策略仓与管线仓在不改券商对接代码的前提下补充市场状态与风险上下文。它面向扩展策略行为的工程师。
 
-- **层级**：`策略库`。
-- **职责**：sidecar 策略插件包。
-- **事实源/归属**：plugin contracts、market-regime controls、notification/research plugin outputs。
-- **消费对象**：QuantPlatformKit 和 strategy/pipeline consumers。
-- **禁止事项**：决定 live eligibility 或直接连接券商。
+## 不适用范围
 
-## 设计边界
-
-- 下游仓库依赖的契约要保持稳定，必要时做版本化。
-- 除非有协同迁移计划，否则优先保持向后兼容。
-- 密钥和环境专属配置不要写进共享库代码。
-- 会影响多个平台或策略包的改动，需要在文档中说明。
-
-## 仓库结构
-
-- `src/`：库代码和运行时代码。
-- `tests/`：单元测试、契约测试和回归测试。
-- `docs/`：运行手册、设计说明、证据和集成契约。
-- `.github/workflows/`：CI、定时任务、发布或部署 workflow。
-- `scripts/`：运维脚本和本地辅助工具。
+它不决定实盘资格。它不连接券商，也不提交订单。它不授予执行权限。
 
 ## 快速开始
 
+需要 Python 3.11 或更高版本。
+
+最小运行时安装（仅库与插件 runner，不含可选的 AI 审阅客户端）：
+
 ```bash
-python -m pip install -e .
+python -m pip install .
+```
+
+完整测试：测试会导入可选的 AI 审阅客户端，因此需安装 `test` 与 `ai` extra
+以匹配 CI（`.github/workflows/ci.yml`），再运行 pytest：
+
+```bash
+python -m pip install -e '.[test,ai]'
 python -m pytest -q
 ```
 
-## 延伸文档
+查看插件 runner 的选项。runner 通过 `--config` 读取 TOML 配置，示例见 `docs/examples/strategy_plugins.example.toml`。
 
-- [`docs/plugin_lifecycle_policy.zh-CN.md`](docs/plugin_lifecycle_policy.zh-CN.md)
-- [`docs/market-regime-control-plan.md`](docs/market-regime-control-plan.md)
-- [`docs/market-regime-control-plan.zh-CN.md`](docs/market-regime-control-plan.zh-CN.md)
-- [`docs/strategy-plugin-signal-envelope-v2.zh-CN.md`](docs/strategy-plugin-signal-envelope-v2.zh-CN.md)：纯本地、仅设计的确定性信号 envelope；未接入 runtime。
+```bash
+qsp-run-strategy-plugins --help
+```
 
-## 社区和安全
+`ai` extra 会加入固定版本的 AI gateway 客户端；安装它不会启用审阅、配置凭据或授予执行权限。
 
-- 贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，确认 PR 范围、本地校验和文档要求。
-- 讨论、issue 和 review 请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
-- 涉及密钥、自动化、券商/交易所或云资源的漏洞请按 [SECURITY.md](SECURITY.md) 私密报告；不要为 secret 或实盘风险开公开 issue。
+## 配置
+
+| 变量 | 必填 | 默认值 | 用途 |
+|---|---|---|---|
+| `YFINANCE_PROXY` | 否 | 无 | Yahoo Finance 价格下载所用的代理覆盖。 |
+| `HTTPS_PROXY` | 否 | 无 | 出站价格下载所用的代理。 |
+| `HTTP_PROXY` | 否 | 无 | 出站价格下载所用的代理。 |
+| `ALL_PROXY` | 否 | 无 | 出站价格下载的回退代理。 |
+
+可选的 AI 审阅客户端从环境变量读取端点与 token，未配置并启用时保持关闭。
+
+## 仓库结构
+
+```
+src/        插件实现与信号信封
+scripts/    插件 runner 与研究脚本
+docs/       生命周期策略与插件设计说明
+tests/      单元与契约测试
+```
+
+## 参与贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 安全
+
+见 [SECURITY.md](SECURITY.md)。安全漏洞不要开公开 issue，也不要让凭据、私有数据和外部服务 token 进入 Git 或日志。
 
 ## 许可证
 
-详见 [LICENSE](LICENSE)。
+MIT，见 [LICENSE](LICENSE)。

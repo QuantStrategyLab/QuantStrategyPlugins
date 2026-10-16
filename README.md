@@ -1,63 +1,79 @@
 # QuantStrategyPlugins
 
-[Chinese README](README.zh-CN.md)
+Sidecar strategy plugin package that emits QuantPlatformKit-compatible signal artifacts.
 
-> Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
+English | [简体中文](README.zh-CN.md)
 
-## What this repository is
+## Status
 
-QuantStrategyPlugins is a QuantStrategyLab strategy plugin package. It provides sidecar strategy plugins such as market-regime controls, notification artifacts, and research-only plugin outputs.
+Experimental. Use at your own risk. This project is not financial advice and
+does not guarantee any trading result. Its outputs are research evidence, not
+trading instructions.
 
-It supports the system but does not decide which strategy should be live. Strategy eligibility remains in the strategy and snapshot repositories; broker execution remains in the platform repositories.
+## What this is
 
-## QSL architecture role
+QuantStrategyPlugins provides sidecar strategy plugins: market-regime controls,
+shadow signals, and research-only output. Each plugin emits a signal envelope
+that QuantPlatformKit consumers can read. Plugins run locally against price
+history and write artifacts, so strategy and pipeline repositories can add
+regime and risk context without changing broker-facing code. It is aimed at
+engineers extending strategy behavior.
 
-- **Layer**: `strategy-lib`.
-- **Responsibility**: sidecar strategy plugin package.
-- **Owns**: plugin contracts, market-regime controls, notification/research plugin outputs.
-- **Consumes**: QuantPlatformKit and strategy/pipeline consumers.
-- **Must not**: decide live eligibility or connect to brokers directly.
+## What this is not
 
-## Design boundary
-
-- Keep contracts stable and versioned where downstream repositories depend on them.
-- Prefer backward-compatible changes unless a coordinated migration is planned.
-- Keep secrets and environment-specific settings outside the shared library code.
-- Document changes that affect multiple platforms or strategy packages.
-
-## Repository layout
-
-- `src/`: library and runtime code.
-- `tests/`: unit, contract, and regression tests.
-- `docs/`: runbooks, design notes, evidence, and integration contracts.
-- `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
-- `scripts/`: operator scripts and local helpers.
+It does not decide live eligibility. It does not connect to a broker or place
+orders. It does not grant execution authority.
 
 ## Quick start
 
+Requires Python 3.11 or newer.
+
 ```bash
-python -m pip install -e '.[test,ai]'
+python -m pip install -e '.[test]'
 python -m pytest -q
 ```
 
-The default runtime install (`python -m pip install .`) does not include the AI
-client. Install `.[ai]` only for an approved AI consumer; it adds the pinned,
-standard-library-only AIAuditBridge SDK, not the gateway service. Installation
-does not enable AI audits, configure credentials, or grant execution authority.
-The full test suite uses the real installed SDK with synthetic HTTP responses;
-it does not call a model or verify production authentication.
+Inspect the plugin runner options. The runner reads a TOML config passed with
+`--config`; a sample is at `docs/examples/strategy_plugins.example.toml`.
 
-## Useful docs
-- [`docs/plugin_lifecycle_policy.md`](docs/plugin_lifecycle_policy.md)
-- [`docs/market-regime-control-plan.md`](docs/market-regime-control-plan.md)
-- [`docs/market-regime-control-plan.zh-CN.md`](docs/market-regime-control-plan.zh-CN.md)
+```bash
+qsp-run-strategy-plugins --help
+```
 
-## Community and security
+The default install does not include the optional AI audit client. Install
+`.[ai]` only if you use that client; it adds the pinned AI gateway client but
+does not enable audits, configure credentials, or grant execution authority.
 
-- See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request scope, local verification, and documentation expectations.
-- Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for maintainer and contributor conduct.
-- Report credential, automation, broker, exchange, or cloud-resource vulnerabilities through [SECURITY.md](SECURITY.md); do not open public issues for secrets or live-execution risk.
+## Configuration
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `YFINANCE_PROXY` | No | none | Proxy override for Yahoo Finance price downloads. |
+| `HTTPS_PROXY` | No | none | Proxy for outbound price downloads. |
+| `HTTP_PROXY` | No | none | Proxy for outbound price downloads. |
+| `ALL_PROXY` | No | none | Fallback proxy for outbound price downloads. |
+
+The optional AI audit client reads its endpoint and token from the environment.
+It stays disabled unless you configure and enable it.
+
+## Repository layout
+
+```
+src/        plugin implementations and signal envelopes
+scripts/    plugin runner and research scripts
+docs/       lifecycle policy and plugin design notes
+tests/      unit and contract tests
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security
+
+See [SECURITY.md](SECURITY.md). Do not open a public issue for a vulnerability.
+Keep credentials, private data, and external service tokens out of Git and logs.
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

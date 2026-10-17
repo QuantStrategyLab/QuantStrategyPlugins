@@ -8,6 +8,14 @@ from typing import Any
 import pandas as pd
 
 from .artifacts import write_json
+from .benchmark_drawdown_guard import PROFILE as BENCHMARK_GUARD_PROFILE, SCHEMA_VERSION as BENCHMARK_GUARD_SCHEMA
+from .plugin_policies import (
+    PLUGIN_CRISIS_RESPONSE_SHADOW,
+    PLUGIN_MACRO_RISK_GOVERNOR,
+    PLUGIN_PANIC_REVERSAL_SHADOW,
+    PLUGIN_SCHEMA_VERSIONS,
+    PLUGIN_TACO_REBOUND_SHADOW,
+)
 from .plugin_signal_utils import flatten_for_csv, json_scalar
 
 SCHEMA_VERSION = "market_regime_control.v1"
@@ -19,6 +27,15 @@ COMPONENT_MACRO = "macro"
 COMPONENT_TACO = "taco"
 COMPONENT_PANIC_REVERSAL = "panic_reversal"
 COMPONENT_BENCHMARK_GUARD = "benchmark_guard"
+
+_COMPONENT_PROFILES = {
+    COMPONENT_CRISIS: PLUGIN_CRISIS_RESPONSE_SHADOW,
+    COMPONENT_MACRO: PLUGIN_MACRO_RISK_GOVERNOR,
+    COMPONENT_TACO: PLUGIN_TACO_REBOUND_SHADOW,
+    COMPONENT_PANIC_REVERSAL: PLUGIN_PANIC_REVERSAL_SHADOW,
+    COMPONENT_BENCHMARK_GUARD: BENCHMARK_GUARD_PROFILE,
+}
+_PROFILE_COMPONENTS = {profile: component for component, profile in _COMPONENT_PROFILES.items()}
 
 ROUTE_NO_ACTION = "no_action"
 ROUTE_WATCH = "watch"
@@ -87,51 +104,54 @@ def _normalized_action(payload: Mapping[str, Any] | None) -> str:
     return _optional_text(payload.get("suggested_action") or payload.get("action")).lower()
 
 
-def _component_key(payload: Mapping[str, Any]) -> str | None:
-    plugin = _optional_text(payload.get("plugin") or payload.get("profile")).lower()
-    if "crisis_response" in plugin:
-        return COMPONENT_CRISIS
-    if "benchmark_drawdown_guard" in plugin:
-        return COMPONENT_BENCHMARK_GUARD
-    if "macro_risk_governor" in plugin:
-        return COMPONENT_MACRO
-    if "taco" in plugin:
-        return COMPONENT_TACO
-    if "panic_reversal" in plugin:
-        return COMPONENT_PANIC_REVERSAL
-    return None
+def _component_key(payload: Mapping[str, Any]) -> str:
+    identities = [payload[name] for name in ("plugin", "profile") if name in payload]
+    if not identities:
+        raise ValueError("invalid_component: missing_identity")
+    components = []
+    for identity in identities:
+        if not isinstance(identity, str) or identity.strip().lower() not in _PROFILE_COMPONENTS:
+            raise ValueError("invalid_component: unsupported_identity")
+        components.append(_PROFILE_COMPONENTS[identity.strip().lower()])
+    if len(set(components)) != 1:
+        raise ValueError("identity_mismatch: plugin/profile")
+    return components[0]
 
 
 def _normalize_component_signals(
     component_signals: Mapping[str, Mapping[str, Any]] | Sequence[Mapping[str, Any]],
 ) -> dict[str, Mapping[str, Any]]:
     if isinstance(component_signals, Mapping):
-        normalized: dict[str, Mapping[str, Any]] = {}
-        for key, payload in component_signals.items():
-            if not isinstance(payload, Mapping):
-                continue
-            component = str(key or "").strip().lower()
-            if component in {
-                COMPONENT_CRISIS,
-                COMPONENT_MACRO,
-                COMPONENT_TACO,
-                COMPONENT_PANIC_REVERSAL,
-                COMPONENT_BENCHMARK_GUARD,
-            }:
-                normalized[component] = payload
-                continue
-            inferred = _component_key(payload)
-            if inferred:
-                normalized[inferred] = payload
-        return normalized
+        entries = component_signals.items()
+    elif isinstance(component_signals, Sequence) and not isinstance(component_signals, (str, bytes, bytearray)):
+        entries = ((None, payload) for payload in component_signals)
+    else:
+        raise ValueError("invalid_component_signals: expected_mapping_or_sequence")
 
-    normalized = {}
-    for payload in component_signals:
+    normalized: dict[str, Mapping[str, Any]] = {}
+    for index, (key, payload) in enumerate(entries):
+        location = f"component_signals[{index}]"
         if not isinstance(payload, Mapping):
-            continue
-        component = _component_key(payload)
-        if component:
-            normalized[component] = payload
+            raise ValueError(f"{location}: invalid_component: expected_mapping")
+        try:
+            component = _component_key(payload)
+        except ValueError as exc:
+            raise ValueError(f"{location}: {exc}") from None
+        named_component = _optional_text(key).lower()
+        if named_component in _COMPONENT_PROFILES and named_component != component:
+            raise ValueError(f"{location}: identity_mismatch: {named_component}")
+        if component in normalized:
+            raise ValueError(f"{location}: duplicate_component: {component}")
+        version = payload.get("schema_version")
+        if version is None or (isinstance(version, str) and not version.strip()):
+            raise ValueError(f"{location}/{component}: missing_schema_version")
+        supported_versions = (
+            (BENCHMARK_GUARD_SCHEMA,) if component == COMPONENT_BENCHMARK_GUARD
+            else PLUGIN_SCHEMA_VERSIONS[_COMPONENT_PROFILES[component]]
+        )
+        if not isinstance(version, str) or version not in supported_versions:
+            raise ValueError(f"{location}/{component}: unsupported_schema_version")
+        normalized[component] = payload
     return normalized
 
 

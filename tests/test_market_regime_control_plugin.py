@@ -7,6 +7,7 @@ def test_market_regime_control_crisis_blocks_taco_opportunity() -> None:
     payload = build_market_regime_control_signal(
         {
             "crisis": {
+                          "schema_version": "crisis_response_shadow.v1",
                 "profile": "crisis_response_shadow",
                 "as_of": "2026-05-28",
                 "canonical_route": "true_crisis",
@@ -14,6 +15,7 @@ def test_market_regime_control_crisis_blocks_taco_opportunity() -> None:
                 "would_trade_if_enabled": True,
             },
             "taco": {
+                        "schema_version": "taco_rebound_shadow.v2",
                 "profile": "taco_rebound_shadow",
                 "as_of": "2026-05-28",
                 "canonical_route": "taco_rebound",
@@ -48,6 +50,7 @@ def test_market_regime_control_macro_delever_blocks_taco_veto() -> None:
     payload = build_market_regime_control_signal(
         {
             "macro": {
+                         "schema_version": "macro_risk_governor.v1",
                 "profile": "macro_risk_governor",
                 "as_of": "2026-05-28",
                 "canonical_route": "delever",
@@ -57,6 +60,7 @@ def test_market_regime_control_macro_delever_blocks_taco_veto() -> None:
                 "reason_codes": ["vix_crisis_level"],
             },
             "taco": {
+                        "schema_version": "taco_rebound_shadow.v2",
                 "profile": "taco_rebound_shadow",
                 "as_of": "2026-05-28",
                 "canonical_route": "taco_rebound",
@@ -93,6 +97,7 @@ def test_market_regime_control_applies_the_generic_benchmark_guard_to_all_risk_a
     payload = build_market_regime_control_signal(
         {
             "benchmark_guard": {
+                                   "schema_version": "benchmark_drawdown_guard.v1",
                 "profile": "benchmark_drawdown_guard",
                 "as_of": "2026-08-25",
                 "canonical_route": "risk_reduced",
@@ -115,6 +120,7 @@ def test_market_regime_control_taco_is_notification_with_local_veto_only() -> No
     payload = build_market_regime_control_signal(
         {
             "taco": {
+                        "schema_version": "taco_rebound_shadow.v2",
                 "profile": "taco_rebound_shadow",
                 "as_of": "2026-05-28",
                 "canonical_route": "taco_rebound",
@@ -184,6 +190,7 @@ def test_market_regime_control_soxl_aggressive_profile_retains_soft_price_reboun
     payload = build_market_regime_control_signal(
         {
             "macro": {
+                         "schema_version": "macro_risk_governor.v1",
                 "profile": "macro_risk_governor",
                 "as_of": "2026-06-16",
                 "canonical_route": "delever",
@@ -219,6 +226,7 @@ def test_market_regime_control_panic_reversal_is_opportunity_watch_only() -> Non
     payload = build_market_regime_control_signal(
         {
             "panic_reversal": {
+                                  "schema_version": "panic_reversal_shadow.v1",
                 "profile": "panic_reversal_shadow",
                 "as_of": "2025-04-09",
                 "canonical_route": "panic_reversal",
@@ -245,6 +253,7 @@ def test_market_regime_control_macro_delever_blocks_panic_reversal() -> None:
     payload = build_market_regime_control_signal(
         {
             "macro": {
+                         "schema_version": "macro_risk_governor.v1",
                 "profile": "macro_risk_governor",
                 "as_of": "2025-04-09",
                 "canonical_route": "delever",
@@ -254,6 +263,7 @@ def test_market_regime_control_macro_delever_blocks_panic_reversal() -> None:
                 "reason_codes": ["vix_crisis_level"],
             },
             "panic_reversal": {
+                                  "schema_version": "panic_reversal_shadow.v1",
                 "profile": "panic_reversal_shadow",
                 "as_of": "2025-04-09",
                 "canonical_route": "panic_reversal",
@@ -277,6 +287,7 @@ def test_market_regime_control_blocked_component_blocks_taco_opportunity() -> No
     payload = build_market_regime_control_signal(
         {
             "macro": {
+                         "schema_version": "macro_risk_governor.v1",
                 "profile": "macro_risk_governor",
                 "as_of": "2026-05-28",
                 "canonical_route": "no_action",
@@ -284,6 +295,7 @@ def test_market_regime_control_blocked_component_blocks_taco_opportunity() -> No
                 "kill_switch_active": True,
             },
             "taco": {
+                        "schema_version": "taco_rebound_shadow.v2",
                 "profile": "taco_rebound_shadow",
                 "as_of": "2026-05-28",
                 "canonical_route": "taco_rebound",

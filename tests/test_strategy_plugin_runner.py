@@ -544,6 +544,7 @@ def test_market_regime_control_defaults_panic_crisis_suppression_to_arbiter(monk
     def fake_build_panic_payload(_price_history: pd.DataFrame, plugin_config: dict[str, object]) -> dict[str, object]:
         captured.append(plugin_config.get("suppress_when_price_crisis_guard_active"))
         return {
+                   "schema_version": "panic_reversal_shadow.v1",
             "profile": "panic_reversal_shadow",
             "as_of": "2025-04-09",
             "canonical_route": "panic_reversal",
@@ -584,6 +585,7 @@ def test_market_regime_control_notification_surfaces_vetoed_panic_reversal() -> 
     payload = build_market_regime_control_signal(
         {
             "macro": {
+                         "schema_version": "macro_risk_governor.v1",
                 "profile": "macro_risk_governor",
                 "as_of": "2025-04-09",
                 "canonical_route": "delever",
@@ -593,6 +595,7 @@ def test_market_regime_control_notification_surfaces_vetoed_panic_reversal() -> 
                 "reason_codes": ["vix_crisis_level"],
             },
             "panic_reversal": {
+                                  "schema_version": "panic_reversal_shadow.v1",
                 "profile": "panic_reversal_shadow",
                 "as_of": "2025-04-09",
                 "canonical_route": "panic_reversal",

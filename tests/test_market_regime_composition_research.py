@@ -86,8 +86,8 @@ def compose(policy, sources, constraints, **kwargs):
 class CompositionTests(unittest.TestCase):
     def test_priority_characterization_and_same_dimension_min(self):
         legacy = build_market_regime_control_signal({
-            "benchmark_guard": {"canonical_route": "risk_reduced", "leverage_scalar": .5, "risk_asset_scalar": .5},
-            "macro": {"canonical_route": "delever", "leverage_scalar": .1, "risk_asset_scalar": .1},
+            "benchmark_guard": {"profile": "benchmark_drawdown_guard", "schema_version": "benchmark_drawdown_guard.v1", "canonical_route": "risk_reduced", "leverage_scalar": .5, "risk_asset_scalar": .5},
+            "macro": {"profile": "macro_risk_governor", "schema_version": "macro_risk_governor.v1", "canonical_route": "delever", "leverage_scalar": .1, "risk_asset_scalar": .1},
         }, as_of="2026-10-06")
         self.assertEqual(legacy["arbiter"]["route_source"], "benchmark_guard")
         self.assertEqual(legacy["position_control"]["leverage_scalar"], .5)
@@ -131,10 +131,10 @@ class CompositionTests(unittest.TestCase):
         self.assertIn("OPPORTUNITY_VETOED", [x["selection"] for x in result["constraints"]])
         self.assertIn("EXPIRED", result["inputs"][1]["reason_codes"])
         legacy = build_market_regime_control_signal({
-            "benchmark_guard": {"canonical_route": "risk_reduced", "leverage_scalar": .5, "risk_asset_scalar": .5},
-            "macro": {"canonical_route": "delever", "leverage_scalar": .1, "risk_asset_scalar": .1,
+            "benchmark_guard": {"profile": "benchmark_drawdown_guard", "schema_version": "benchmark_drawdown_guard.v1", "canonical_route": "risk_reduced", "leverage_scalar": .5, "risk_asset_scalar": .5},
+            "macro": {"profile": "macro_risk_governor", "schema_version": "macro_risk_governor.v1", "canonical_route": "delever", "leverage_scalar": .1, "risk_asset_scalar": .1,
                       "valid_until": "2026-10-06T19:59:59Z"},
-            "taco": {"canonical_route": "taco_rebound", "manual_review_required": True},
+            "taco": {"profile": "taco_rebound_shadow", "schema_version": "taco_rebound_shadow.v2", "canonical_route": "taco_rebound", "manual_review_required": True},
         }, as_of="2026-10-06")
         self.assertEqual(legacy["position_control"]["risk_asset_scalar"], .5)
 

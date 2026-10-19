@@ -817,6 +817,12 @@ def prepare_crisis_shadow_audit(
     from ai_service.scenarios import ContractError, compile_task_spec, load_instance
     from ai_service.scenarios.pilot import PilotTask, digest, object_schema
 
+    if (crisis_payload.get("schema_version") != "crisis_response_shadow.v1"
+            or crisis_payload.get("profile") != "crisis_response_shadow"):
+        raise ContractError("Crisis audit requires an identified frozen Crisis report")
+    sparse = (not isinstance(crisis_payload.get("as_of"), str) or not crisis_payload["as_of"].strip()
+              or any(not isinstance(crisis_payload.get(field), Mapping) or not crisis_payload[field]
+                     for field in ("evidence", "data_freshness", "data_quality")))
     config = load_instance(instance)
     stages = config["stages"]
     if (config["project"] != CRISIS_NATIVE_PROJECT or config["template"] != "report_audit"
@@ -853,11 +859,11 @@ def prepare_crisis_shadow_audit(
                                   {"type": "null"}, {"const": "unknown"}]},
         "summary": text(600),
         "key_risks": {"type": "array", "maxItems": 5, "items": text(160)},
-        "data_gaps": {"type": "array", "maxItems": 5, "items": text(160)},
+        "data_gaps": {"type": "array", "maxItems": 5, "items": {**text(160), "pattern": r"\S"}},
         "human_review_recommended": {"type": "boolean"},
     })
     # Sparse reports cannot support a positive evidence-consistency conclusion.
-    if any(not projection[field] for field in ("as_of", "evidence", "data_freshness", "data_quality")):
+    if sparse:
         output_schema["properties"]["verdict"] = {"const": "data_insufficient"}
         output_schema["properties"]["data_gaps"].update(minItems=1)
         output_schema["properties"]["human_review_recommended"] = {"const": True}
@@ -887,6 +893,10 @@ def verify_crisis_shadow_audit(task: Any, record: Mapping[str, Any], *, task_id:
         raise ContractError("Crisis audit readback identity is invalid")
     verified = verify(task, record, task_id=task_id, provider="dot")
     projection = task.request["materials"][0]["input_manifest"]["report"]
+    normalized = _normalize_ai_audit_response(record["output"])
+    if (task.request["output_schema"]["properties"]["data_gaps"].get("minItems", 0)
+            and not normalized["data_gaps"]):
+        raise ContractError("Crisis audit must retain a meaningful evidence gap")
     return {
         "schema_version": AI_AUDIT_SCHEMA_VERSION, "audit_kind": "crisis_response_shadow",
         "enabled": True, "status": "advisory", "mode": "shadow_only",
@@ -899,5 +909,5 @@ def verify_crisis_shadow_audit(task: Any, record: Mapping[str, Any], *, task_id:
             "notification_profile": "shadow_only",
         },
         "native_verification": verified,
-        **_normalize_ai_audit_response(record["output"]),
+        **normalized,
     }

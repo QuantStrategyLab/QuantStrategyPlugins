@@ -747,6 +747,9 @@ def _native_transport(directory, *, unknown=False, overreach=False):
                 if unknown:
                     raise TimeoutError("synthetic unknown submission")
                 result = {"id": "synthetic-task", "status": "queued"}
+            elif url.endswith("/events"):
+                result = {"events": [{"seq": 1, "status": "queued", "created": 1},
+                                     {"seq": 2, "status": "completed", "created": 2}]}
             else:
                 assert url == "https://quant.invalid/v1/tasks/synthetic-task"
                 result = _native_record(self.task)
@@ -754,6 +757,179 @@ def _native_transport(directory, *, unknown=False, overreach=False):
                     result["output"]["execution_controls"] = {"broker_order_allowed": True}
             return types.SimpleNamespace(status=200, body=json.dumps(result).encode())
     return TaskClient("https://quant.invalid", "synthetic", transport=SyntheticTransport()), calls
+
+
+def _recovery_context(root, native_instance, *, submitted_at="2099-01-01T00:00:00Z"):
+    from datetime import datetime
+    from ai_service.scenarios.pilot import digest
+    from ai_service.scenarios.pilot_cli import write_private
+    root.mkdir(parents=True)
+    module, args, report, instance, directory = _report_cli_context(root, native_instance)
+    args[args.index("--submitted-at") + 1] = submitted_at
+    task = ai_audit.prepare_crisis_shadow_audit(json.loads(report.read_text()),
+        instance=json.loads(instance.read_text()), source_ref="synthetic.frozen-report", source_revision="b" * 40,
+        source_sha256=args[args.index("--source-sha256") + 1], occurrence="synthetic.report-1",
+        submitted_at=datetime.fromisoformat(args[args.index("--submitted-at") + 1].replace("Z", "+00:00")))
+    directory.mkdir(mode=0o700)
+    path = directory / ("crisis-" + task.spec["operation_key"].split(":", 1)[1] + ".intent.json")
+    value = {"status": "intent", "operation_key": task.spec["operation_key"], "request_sha256": digest(task.request),
+             "spec": task.spec, "request": task.request,
+             "service": {"resource": "https://quant.invalid", "audience": "synthetic.audience"}}
+    write_private(path, value)
+    return module, args, directory, task, path
+
+
+def _recovery_transport(task, *, change=None, on_reply=None):
+    from ai_service.client import TaskClient
+    from ai_service.scenarios.pilot import digest
+    calls = []
+    class Transport:
+        def request(self, url, *, method, headers, body=b""):
+            assert method == "GET" and body == b""
+            calls.append(url)
+            if url.endswith("/lookup"):
+                assert headers["Idempotency-Key"] == task.spec["operation_key"]
+                assert headers["X-Request-SHA256"] == digest(task.request)
+                if change == "lookup_timeout":
+                    raise TimeoutError("synthetic unknown")
+                if change == "lookup_404":
+                    return types.SimpleNamespace(status=404, body=b'{"error":"not_found"}')
+                payload = {"id": "synthetic-task"}
+            elif url.endswith("/events"):
+                rows = [{"seq": 1, "status": "queued", "created": 1},
+                        {"seq": 2, "status": "completed", "created": 2}]
+                if change == "prior_cancel":
+                    rows.insert(1, {"seq": 2, "status": "cancel_requested", "created": 1.5})
+                    rows[-1]["seq"] = 3
+                elif change == "empty_history":
+                    rows = []
+                elif change == "full_history_page":
+                    rows = [{"seq": i, "status": "completed", "created": i} for i in range(1, 101)]
+                elif change == "duplicate_history":
+                    rows[-1]["seq"] = 1
+                payload = {"events": rows}
+            else:
+                assert url == "https://quant.invalid/v1/tasks/synthetic-task"
+                payload = _native_record(task)
+                if change in {"outcome_unknown", "cancel_requested", "cancelled"}:
+                    payload["status"] = change
+                elif change == "request_drift":
+                    payload["request"]["objective"] += " drift"
+            if on_reply is not None:
+                on_reply(url)
+            return types.SimpleNamespace(status=200, body=json.dumps(payload).encode())
+    return TaskClient("https://quant.invalid", "synthetic", transport=Transport()), calls
+
+
+def _assert_recovery_contract(root, native_instance, subtests):
+    import hashlib
+    from ai_service.scenarios.pilot_cli import write_private
+    with subtests.test(case="recover_then_verify_preserves_unknown_submit"):
+        module, args, directory, task, intent = _recovery_context(root / "positive", native_instance)
+        frozen = intent.read_bytes()
+        client, calls = _recovery_transport(task)
+        assert module.main(["recover", *args], client=client) == 0
+        recovered, = directory.glob("*.recovered.json")
+        receipt = json.loads(recovered.read_text())
+        assert receipt["source"] == "readonly_task_lookup"
+        assert receipt["intent_sha256"] == hashlib.sha256(frozen).hexdigest()
+        assert not list(directory.glob("*.submitted.json"))
+        original_recovery = recovered.read_bytes()
+        assert module.main(["recover", *args], client=client) == 0
+        assert recovered.read_bytes() == original_recovery
+        assert module.main(["verify", *args], client=client) == 0
+        advisory, = directory.glob("*.advisory.json")
+        result = json.loads(advisory.read_text())
+        assert result["status"] == "advisory" and not result["execution_controls"]["broker_order_allowed"]
+        assert intent.read_bytes() == frozen
+        assert all(p.stat().st_mode & 0o777 == 0o600 for p in directory.iterdir())
+        assert all("/v1/tasks" in url for url in calls)
+        count = len(calls)
+        assert module.main(["submit", *args], client=client) == 1
+        assert len(calls) == count
+    for change in ["lookup_404", "lookup_timeout", "outcome_unknown", "cancel_requested", "cancelled",
+                   "request_drift", "prior_cancel", "empty_history", "full_history_page", "duplicate_history"]:
+        with subtests.test(case=change):
+            module, args, directory, task, intent = _recovery_context(root / change, native_instance)
+            frozen = intent.read_bytes()
+            client, calls = _recovery_transport(task, change=change)
+            if change.startswith("lookup_"):
+                assert module.main(["recover", *args], client=client) == 1
+                assert len(calls) == 1
+                assert not list(directory.glob("*.recovered.json"))
+            else:
+                assert module.main(["recover", *args], client=client) == 0
+                assert module.main(["verify", *args], client=client) == 1
+            assert intent.read_bytes() == frozen
+            assert not list(directory.glob("*.submitted.json"))
+            assert not list(directory.glob("*.advisory.json"))
+    for change in ["expired", "forged_id", "wrong_service", "conflicting_receipts", "symlink_receipt",
+                   "partial_receipt", "public_receipt", "wrong_intent_digest"]:
+        with subtests.test(case=change):
+            module, args, directory, task, intent = _recovery_context(root / change, native_instance,
+                submitted_at="2000-01-01T00:00:00Z" if change == "expired" else "2099-01-01T00:00:00Z")
+            client, calls = _recovery_transport(task)
+            if change == "expired":
+                # A matching original intent is expired; this is not an identity mismatch.
+                assert module.main(["recover", *args], client=client) == 1
+                assert calls == []
+                continue
+            assert module.main(["recover", *args], client=client) == 0
+            recovered, = directory.glob("*.recovered.json")
+            if change == "forged_id":
+                value = json.loads(recovered.read_text())
+                value["task_id"] = "other-task"
+                recovered.write_text(json.dumps(value))
+            elif change == "wrong_service":
+                args[args.index("--audience") + 1] = "synthetic.other"
+            elif change == "conflicting_receipts":
+                value = json.loads(recovered.read_text())
+                value.update(status="submitted", task_id="other-task")
+                write_private(directory / recovered.name.replace(".recovered.json", ".submitted.json"), value)
+            elif change == "symlink_receipt":
+                target = directory / "untrusted.json"
+                target.write_bytes(recovered.read_bytes())
+                recovered.unlink()
+                recovered.symlink_to(target)
+            elif change == "partial_receipt":
+                recovered.write_bytes(b'{')
+            elif change == "public_receipt":
+                recovered.chmod(0o644)
+            else:
+                value = json.loads(recovered.read_text())
+                value["intent_sha256"] = "0" * 64
+                recovered.write_text(json.dumps(value))
+            frozen = intent.read_bytes()
+            assert module.main(["verify", *args], client=client) == 1
+            assert intent.read_bytes() == frozen and not list(directory.glob("*.advisory.json"))
+    with subtests.test(case="expired_original_submitted_receipt"):
+        module, args, directory, task, intent = _recovery_context(root / "expired-submitted", native_instance,
+            submitted_at="2000-01-01T00:00:00Z")
+        value = json.loads(intent.read_text())
+        value.update(status="submitted", task_id="synthetic-task")
+        write_private(directory / intent.name.replace(".intent.json", ".submitted.json"), value)
+        client, calls = _recovery_transport(task)
+        assert module.main(["verify", *args], client=client) == 1
+        assert calls == [] and not list(directory.glob("*.advisory.json"))
+    for stage in ["lookup", "history"]:
+        with subtests.test(case="deadline_during_" + stage):
+            from datetime import datetime
+            module, args, directory, task, intent = _recovery_context(root / ("late-" + stage), native_instance)
+            class DeadlineClock(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime.fromisoformat(task.spec["deadline"].replace("Z", "+00:00"))
+            def late(url):
+                if url.endswith("/lookup" if stage == "lookup" else "/events"):
+                    module.datetime = DeadlineClock
+            client, calls = _recovery_transport(task, on_reply=late)
+            if stage == "lookup":
+                assert module.main(["recover", *args], client=client) == 1
+                assert len(calls) == 1 and not list(directory.glob("*.recovered.json"))
+            else:
+                assert module.main(["recover", *args], client=client) == 0
+                assert module.main(["verify", *args], client=client) == 1
+            assert not list(directory.glob("*.advisory.json"))
 
 
 def test_native_cli_synthetic_transport_submit_and_readback(tmp_path, native_instance, capsys):
@@ -764,17 +940,17 @@ def test_native_cli_synthetic_transport_submit_and_readback(tmp_path, native_ins
     assert calls == [] and not directory.exists()
     assert module.main(["submit", *args], client=client) == 0
     assert module.main(["verify", *args], client=client) == 0
-    assert [method for method, _ in calls] == ["POST", "GET"]
+    assert [method for method, _ in calls] == ["POST", "GET", "GET"]
     advisory, = directory.glob("*.advisory.json")
     assert json.loads(advisory.read_text())["status"] == "advisory"
     assert before == (report.read_bytes(), instance.read_bytes())
     assert all(path.stat().st_mode & 0o777 == 0o600 for path in directory.iterdir())
     assert str(tmp_path) not in capsys.readouterr().out
     assert module.main(["submit", *args], client=client) == 1
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
-def test_native_cli_unknown_submission_retains_intent_and_never_resubmits(tmp_path, native_instance, capsys):
+def test_native_cli_unknown_submission_retains_intent_and_never_resubmits(tmp_path, native_instance, capsys, subtests):
     module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
     client, calls = _native_transport(directory, unknown=True)
     assert module.main(["submit", *args], client=client) == 1
@@ -788,6 +964,7 @@ def test_native_cli_unknown_submission_retains_intent_and_never_resubmits(tmp_pa
     assert all(response["status"] == "unverified" for response in responses)
     assert not list(directory.glob("*.submitted.json"))
     assert not list(directory.glob("*.advisory.json"))
+    _assert_recovery_contract(tmp_path / "recovery-cases", native_instance, subtests)
 
 
 @pytest.mark.parametrize("change", ["report", "instance", "intent", "output"])
@@ -889,7 +1066,7 @@ def test_native_review_resource_normalization_keeps_same_service_positive(tmp_pa
     assert module.main(["submit", *args], client=client) == 0
     args[args.index("--resource") + 1] = "https://quant.invalid"
     assert module.main(["verify", *args], client=client) == 0
-    assert [method for method, _ in calls] == ["POST", "GET"]
+    assert [method for method, _ in calls] == ["POST", "GET", "GET"]
 
 
 @pytest.mark.parametrize("resource", [None, "http://quant.invalid", "https://user@quant.invalid",
@@ -940,7 +1117,7 @@ def test_native_review_explicit_workload_context_positive_does_not_persist_token
     monkeypatch.setattr("ai_service.client.client_from_env", lambda **_: client)
     assert module.main(["submit", *args]) == 0
     assert module.main(["verify", *args]) == 0
-    assert [method for method, _ in calls] == ["POST", "GET"]
+    assert [method for method, _ in calls] == ["POST", "GET", "GET"]
     assert all("synthetic-private-token" not in path.read_text() for path in directory.iterdir())
 
 

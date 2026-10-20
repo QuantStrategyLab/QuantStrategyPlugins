@@ -744,7 +744,7 @@ wheels = [
 [[package]]
 name = "quant-ai-service"
 version = "2.0.13"
-source = { git = "https://github.com/QuantStrategyLab/QuantAIService.git?rev=f318d0ad1183fcf07574f6e00baf8809c8552b8d#f318d0ad1183fcf07574f6e00baf8809c8552b8d" }
+source = { git = "https://github.com/QuantStrategyLab/QuantAIService.git?rev=3578c539ebe704358fbace29412a64090dda7f08#3578c539ebe704358fbace29412a64090dda7f08" }
 dependencies = [
     { name = "jsonschema" },
     { name = "pyjwt", extra = ["crypto"] },
@@ -778,7 +778,7 @@ requires-dist = [
     { name = "build", marker = "extra == 'test'", specifier = ">=1.2" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
-    { name = "quant-ai-service", marker = "extra == 'native-audit'", git = "https://github.com/QuantStrategyLab/QuantAIService.git?rev=f318d0ad1183fcf07574f6e00baf8809c8552b8d" },
+    { name = "quant-ai-service", marker = "extra == 'native-audit'", git = "https://github.com/QuantStrategyLab/QuantAIService.git?rev=3578c539ebe704358fbace29412a64090dda7f08" },
     { name = "ruff", marker = "extra == 'test'", specifier = "==0.17.1" },
     { name = "yfinance", specifier = ">=0.2.40" },
 ]

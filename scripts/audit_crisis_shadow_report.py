@@ -6,12 +6,14 @@ subscription or worker and never waits, retries, or falls back to another route.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+import stat
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from quant_strategy_plugins.ai_audit import prepare_crisis_shadow_audit, verify_crisis_shadow_audit
 
@@ -43,9 +45,74 @@ def _approved_client(client, service):
     return client
 
 
+def _read_private(path):
+    if path.is_symlink():
+        raise ValueError("private evidence must be a regular file")
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
+            raise ValueError("private evidence must have mode 0600")
+        raw = stream.read(4_000_001)
+    if len(raw) > 4_000_000:
+        raise ValueError("private evidence exceeds its bound")
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("private evidence must be an object")
+    return value, raw
+
+
+def _binding(path, intent, intent_sha256, *, recovered=False):
+    if not path.exists() and not path.is_symlink():
+        return None
+    value, _ = _read_private(path)
+    task_id = value.get("task_id")
+    if (value.get("status") != ("recovered" if recovered else "submitted")
+            or value.get("operation_key") != intent["operation_key"]
+            or value.get("request_sha256") != intent["request_sha256"]
+            or value.get("service") != intent["service"]
+            or not isinstance(task_id, str) or not 1 <= len(task_id) <= 200
+            or "\r" in task_id or "\n" in task_id):
+        raise ValueError("original task identity is unavailable")
+    if recovered and (value.get("source") != "readonly_task_lookup"
+                      or value.get("intent_sha256") != intent_sha256):
+        raise ValueError("recovery provenance does not match the original intent")
+    return value
+
+
+def _unexpired(task):
+    deadline = datetime.fromisoformat(task.spec["deadline"].replace("Z", "+00:00"))
+    if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline:
+        raise ValueError("original operation deadline passed")
+
+
+def _uncancelled_history(client, task_id):
+    history = client.request("GET", "/v1/tasks/" + quote(task_id, safe="") + "/events")
+    if not isinstance(history, dict) or set(history) != {"events"}:
+        raise ValueError("task history is unavailable")
+    rows = history["events"]
+    # The existing endpoint returns at most 100 rows. A full page cannot prove
+    # that the history is complete; never poll or paginate as a fallback.
+    if not isinstance(rows, list) or not 0 < len(rows) < 100:
+        raise ValueError("complete bounded task history is required")
+    previous = 0
+    states = {"queued", "submitting", "running", "outcome_unknown", "cancel_requested",
+              "completed", "failed", "invalid_output", "cancelled"}
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) != {"seq", "status", "created"}
+                or type(row["seq"]) is not int or row["seq"] <= previous
+                or not isinstance(row["status"], str) or row["status"] not in states
+                or type(row["created"]) not in {int, float} or not math.isfinite(row["created"])):
+            raise ValueError("task history is invalid")
+        previous = row["seq"]
+        if row["status"] in {"cancel_requested", "cancelled"}:
+            raise ValueError("original operation has cancellation history")
+    if rows[-1]["status"] != "completed":
+        raise ValueError("task history does not confirm completion")
+
+
 def main(argv=None, *, client=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["dry-run", "submit", "verify"], nargs="?", default="dry-run")
+    parser.add_argument("command", choices=["dry-run", "submit", "recover", "verify"], nargs="?", default="dry-run")
     parser.add_argument("--enabled", action="store_true", help="explicit native entry opt-in")
     parser.add_argument("--instance", type=Path)
     parser.add_argument("--report", type=Path)
@@ -95,14 +162,17 @@ def main(argv=None, *, client=None):
             if args.report.resolve().is_relative_to(directory) or args.instance.resolve().is_relative_to(directory):
                 raise ValueError("audit directory must be separate from the frozen inputs")
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if stat.S_IMODE(directory.stat().st_mode) != 0o700:
+                raise ValueError("audit directory must have mode 0700")
             prefix = directory / ("crisis-" + task.spec["operation_key"].split(":", 1)[1])
             intent_path = Path(str(prefix) + ".intent.json")
             submitted_path = Path(str(prefix) + ".submitted.json")
+            recovered_path = Path(str(prefix) + ".recovered.json")
             advisory_path = Path(str(prefix) + ".advisory.json")
             intent = {"status": "intent", "operation_key": task.spec["operation_key"],
                       "request_sha256": digest(task.request), "spec": task.spec, "request": task.request, "service": service}
             if args.command == "submit":
-                if submitted_path.exists() or advisory_path.exists():
+                if submitted_path.exists() or recovered_path.exists() or advisory_path.exists():
                     raise ValueError("operation already has a receipt")
                 # SDK exclusive 0600/fsync write precedes client construction and POST.
                 # Any exception leaves this intent intact, preventing another submission.
@@ -114,19 +184,48 @@ def main(argv=None, *, client=None):
                           "service": service}
                 write_private(submitted_path, result)
             else:
-                if json.loads(intent_path.read_text()) != intent:
+                original, intent_raw = _read_private(intent_path)
+                if original != intent:
                     raise ValueError("frozen intent mismatch")
-                submitted = json.loads(submitted_path.read_text())
-                if (submitted.get("operation_key") != task.spec["operation_key"]
-                        or submitted.get("request_sha256") != digest(task.request)
-                        or submitted.get("service") != service
-                        or not isinstance(submitted.get("task_id"), str) or not submitted["task_id"]):
+                _unexpired(task)
+                if advisory_path.exists() or advisory_path.is_symlink():
+                    raise ValueError("operation already has an advisory")
+                intent_sha256 = hashlib.sha256(intent_raw).hexdigest()
+                submitted = _binding(submitted_path, intent, intent_sha256)
+                recovered = _binding(recovered_path, intent, intent_sha256, recovered=True)
+                if submitted and recovered and submitted["task_id"] != recovered["task_id"]:
+                    raise ValueError("conflicting task identities")
+                if args.command == "recover" and submitted and not recovered:
+                    result = submitted
+                elif args.command == "recover" or recovered:
+                    client = _approved_client(client, service)
+                    # Every explicit recovery/provenance use gets one authoritative
+                    # binding read; never trust a locally changed ID or retry a miss.
+                    found = client.lookup(intent["operation_key"], intent["request_sha256"])
+                    if (not isinstance(found, dict) or set(found) != {"id"}
+                            or not isinstance(found["id"], str) or not 1 <= len(found["id"]) <= 200
+                            or "\r" in found["id"] or "\n" in found["id"]):
+                        raise ValueError("invalid recovery response")
+                    if recovered and found["id"] != recovered["task_id"]:
+                        raise ValueError("recovery binding changed")
+                    _unexpired(task)
+                    result = recovered or {"status": "recovered", "source": "readonly_task_lookup",
+                        "task_id": found["id"], "operation_key": intent["operation_key"],
+                        "request_sha256": intent["request_sha256"], "service": service,
+                        "intent_sha256": intent_sha256}
+                    if not recovered:
+                        write_private(recovered_path, result)
+                    recovered = result
+                elif submitted is None:
                     raise ValueError("original task identity is unavailable")
-                client = _approved_client(client, service)
-                # One caller readback. Pending/unknown results remain pending/unknown.
-                record = client.get(submitted["task_id"])
-                result = verify_crisis_shadow_audit(task, record, task_id=submitted["task_id"])
-                write_private(advisory_path, result)
+                if args.command == "verify":
+                    identity = submitted or recovered
+                    client = _approved_client(client, service)
+                    record = client.get(identity["task_id"])
+                    result = verify_crisis_shadow_audit(task, record, task_id=identity["task_id"])
+                    _uncancelled_history(client, identity["task_id"])
+                    _unexpired(task)
+                    write_private(advisory_path, result)
         print(json.dumps({"status": result["status"], "operation_key": task.spec["operation_key"]}))
         return 0
     except Exception:

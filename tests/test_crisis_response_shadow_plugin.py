@@ -85,186 +85,41 @@ def test_shadow_signal_routes_financial_credit_crisis_without_live_execution() -
     assert "ai_audit" not in payload
 
 
-@pytest.mark.parametrize("advisory", [False, True])
-def test_shadow_signal_ai_audit_uses_gateway_fallback_without_changing_route(monkeypatch, advisory) -> None:
-    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
+@pytest.mark.parametrize("legacy_options", [
+    {"ai_audit_codex_enabled": True},
+    {"ai_audit_codex_enabled": False, "ai_audit_api_key": "synthetic",
+     "ai_audit_fallback_api_key": "synthetic"},
+    {"ai_audit_codex_enabled": False, "ai_audit_anthropic_api_key": "synthetic"},
+])
+def test_shadow_signal_legacy_ai_is_closed_and_deterministic_output_is_identical(monkeypatch, legacy_options):
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
+    def forbidden(*args, **kwargs):
+        pytest.fail("legacy Crisis AI must never run")
+    monkeypatch.setattr("quant_strategy_plugins.ai_audit.build_ai_audit_endpoints", forbidden)
+    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", forbidden)
+    monkeypatch.setattr("quant_strategy_plugins.ai_audit._report_shadow_disagreement", forbidden)
     prices = _financial_crisis_prices()
-    as_of = str(pd.to_datetime(prices["as_of"]).max().date())
-    calls: list[str] = []
-
-    def fake_completion(endpoint, messages, timeout_seconds):
-        calls.append(endpoint.name)
-        assert timeout_seconds == 7.0
-        assert messages[0]["role"] == "system"
-        if endpoint.name == "primary":
-            raise RuntimeError("primary unavailable")
-        return ({
-            "verdict": "agree",
-            "route_assessment": "confirm_true_crisis",
-            "confidence": 0.82,
-            "summary": "Evidence supports the deterministic crisis route; keep deterministic controls in charge.",
-            "key_risks": ["financial and credit stress are both active"],
-            "data_gaps": [],
-            "human_review_recommended": False,
-        }, advisory)
-
-    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
-    payload = build_crisis_response_shadow_signal(
-        prices,
-        events=(),
-        as_of=as_of,
-        start_date="2007-01-02",
-        financial_symbols=("XLF",),
-        credit_pairs=(("HYG", "IEF"),),
-        rate_symbols=(),
-        ai_audit_enabled=True,
-        ai_audit_api_key="sk-primary",
-        ai_audit_base_url="https://primary.example/v1",
-        ai_audit_model="primary-model",
-        ai_audit_fallback_api_key="sk-fallback",
-        ai_audit_fallback_base_url="https://fallback.example/v1",
-        ai_audit_fallback_model="fallback-model",
-        ai_audit_codex_enabled=False,
-        ai_audit_timeout_seconds=7.0,
-    )
-
-    assert payload["canonical_route"] == ROUTE_TRUE_CRISIS
-    assert payload["suggested_action"] == "defend"
-    assert payload["execution_controls"]["ai_audit_shadow_only"] is True
-    assert calls == ["primary", "fallback"]
-    audit = payload["ai_audit"]
-    expected_status = "advisory" if advisory else "ok"
-    assert audit["status"] == expected_status
-    assert audit["selected_endpoint"]["name"] == "fallback"
-    assert audit["selected_endpoint"]["model"] == "fallback-model"
-    assert audit["verdict"] == "agree"
+    options = dict(events=(), as_of=str(pd.to_datetime(prices["as_of"]).max().date()),
+                   start_date="2007-01-02", financial_symbols=("XLF",),
+                   credit_pairs=(("HYG", "IEF"),), rate_symbols=())
+    default = build_crisis_response_shadow_signal(prices, **options)
+    explicit_off = build_crisis_response_shadow_signal(prices, **options, ai_audit_enabled=False)
+    default.pop("generated_at")
+    explicit_off.pop("generated_at")
+    assert default == explicit_off
+    assert "ai_audit" not in default
+    legacy_on = build_crisis_response_shadow_signal(prices, **options, ai_audit_enabled=True, **legacy_options)
+    audit = legacy_on.pop("ai_audit")
+    legacy_on.pop("generated_at")
+    assert legacy_on["execution_controls"].pop("ai_audit_shadow_only") is True
+    assert default["execution_controls"].pop("ai_audit_shadow_only") is False
+    assert legacy_on == default  # Route, risk multiplier, kill switch and all authority controls are identical.
+    assert audit["status"] == "skipped"
+    assert audit["skip_reason"] == "native_context_required"
+    assert audit["attempts"] == []
     assert audit["final_route_unchanged"] is True
-    assert audit["deterministic_route"] == ROUTE_TRUE_CRISIS
-    assert audit["attempts"][0]["status"] == "failed"
-    assert audit["attempts"][1]["status"] == expected_status
     from quant_strategy_plugins.plugin_signal_utils import flatten_for_csv
-    assert flatten_for_csv(payload)["ai_audit.status"] == expected_status
-
-
-def test_shadow_signal_ai_audit_uses_gateway_anthropic_fallback(monkeypatch) -> None:
-    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
-    prices = _financial_crisis_prices()
-    as_of = str(pd.to_datetime(prices["as_of"]).max().date())
-    calls: list[tuple[str, str]] = []
-
-    def fake_completion(endpoint, _messages, _timeout_seconds):
-        calls.append((endpoint.name, endpoint.provider))
-        if endpoint.provider == "openai":
-            raise RuntimeError("openai unavailable")
-        return ({
-            "verdict": "review",
-            "route_assessment": "needs_human_review",
-            "confidence": 0.64,
-            "summary": "Anthropic fallback found the evidence plausible but wants operator review.",
-            "key_risks": ["rapid drawdown"],
-            "data_gaps": ["macro context not in payload"],
-            "human_review_recommended": True,
-        }, False)
-
-    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
-    payload = build_crisis_response_shadow_signal(
-        prices,
-        events=(),
-        as_of=as_of,
-        start_date="2007-01-02",
-        financial_symbols=("XLF",),
-        credit_pairs=(("HYG", "IEF"),),
-        rate_symbols=(),
-        ai_audit_enabled=True,
-        ai_audit_api_key="sk-openai",
-        ai_audit_model="openai-model",
-        ai_audit_codex_enabled=False,
-        ai_audit_anthropic_api_key="sk-ant",
-        ai_audit_anthropic_model="anthropic-model",
-        ai_audit_anthropic_version="2023-06-01",
-    )
-
-    audit = payload["ai_audit"]
-    assert payload["canonical_route"] == ROUTE_TRUE_CRISIS
-    assert calls == [("primary", "openai"), ("anthropic", "anthropic")]
-    assert audit["status"] == "ok"
-    assert audit["selected_endpoint"]["provider"] == "anthropic"
-    assert audit["selected_endpoint"]["model"] == "anthropic-model"
-    assert audit["verdict"] == "review"
-    assert audit["final_route_unchanged"] is True
-
-
-def test_shadow_signal_ai_audit_skips_without_gateway(monkeypatch) -> None:
-    for key in (
-        "QSP_STRATEGY_PLUGIN_AI_AUDIT_API_KEY",
-        "QSP_CRISIS_AI_AUDIT_API_KEY",
-        "OPENAI_API_KEY",
-        "QSP_STRATEGY_PLUGIN_AI_AUDIT_FALLBACK_API_KEY",
-        "QSP_CRISIS_AI_AUDIT_FALLBACK_API_KEY",
-        "OPENAI_FALLBACK_API_KEY",
-        "QSP_STRATEGY_PLUGIN_AI_AUDIT_ANTHROPIC_API_KEY",
-        "QSP_CRISIS_AI_AUDIT_ANTHROPIC_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "CODEX_AUDIT_SERVICE_URL",
-    ):
-        monkeypatch.delenv(key, raising=False)
-
-    prices = _financial_crisis_prices()
-    as_of = str(pd.to_datetime(prices["as_of"]).max().date())
-    payload = build_crisis_response_shadow_signal(
-        prices,
-        events=(),
-        as_of=as_of,
-        start_date="2007-01-02",
-        financial_symbols=("XLF",),
-        credit_pairs=(("HYG", "IEF"),),
-        rate_symbols=(),
-        ai_audit_enabled=True,
-        ai_audit_codex_enabled=False,
-    )
-
-    assert payload["canonical_route"] == ROUTE_TRUE_CRISIS
-    assert payload["ai_audit"]["status"] == "skipped"
-    assert payload["ai_audit"]["skip_reason"] == "gateway_unavailable"
-    assert payload["ai_audit"]["final_route_unchanged"] is True
-
-
-def test_shadow_signal_ai_audit_prefers_gateway_codex_provider(monkeypatch) -> None:
-    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.example")
-    prices = _financial_crisis_prices()
-    as_of = str(pd.to_datetime(prices["as_of"]).max().date())
-    calls: list[tuple[str, str]] = []
-
-    def fake_completion(endpoint, _messages, _timeout_seconds):
-        calls.append((endpoint.name, endpoint.provider))
-        return ({
-            "verdict": "agree",
-            "route_assessment": "codex_confirmed",
-            "confidence": 0.70,
-            "summary": "Codex audit agrees with the deterministic route.",
-            "key_risks": [],
-            "data_gaps": [],
-            "human_review_recommended": False,
-        }, False)
-
-    monkeypatch.setattr("quant_strategy_plugins.ai_audit._complete_with_endpoint", fake_completion)
-    payload = build_crisis_response_shadow_signal(
-        prices,
-        events=(),
-        as_of=as_of,
-        start_date="2007-01-02",
-        financial_symbols=("XLF",),
-        credit_pairs=(("HYG", "IEF"),),
-        rate_symbols=(),
-        ai_audit_enabled=True,
-        ai_audit_codex_enabled=True,
-    )
-
-    audit = payload["ai_audit"]
-    assert calls == [("codex", "codex")]
-    assert audit["status"] == "ok"
-    assert audit["selected_endpoint"]["provider"] == "codex"
-    assert audit["verdict"] == "agree"
+    assert flatten_for_csv({**legacy_on, "ai_audit": audit})["ai_audit.status"] == "skipped"
 
 
 def test_shadow_signal_evidence_uses_configured_benchmark_drawdown() -> None:

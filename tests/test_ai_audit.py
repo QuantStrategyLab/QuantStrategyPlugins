@@ -21,7 +21,7 @@ from quant_strategy_plugins.ai_audit import (
 
 
 @pytest.mark.parametrize("confidence", ["nan", "NaN", "inf", "-inf", float("nan"), float("inf"), -float("inf")])
-@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+@pytest.mark.parametrize("entry", [ai_audit.run_taco_ai_audit])
 def test_nonfinite_confidence_remains_unknown_and_does_not_write_feedback(monkeypatch, confidence, entry):
     monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
     monkeypatch.setattr(ai_audit, "build_ai_audit_endpoints", lambda **_: (
@@ -75,7 +75,7 @@ def test_optional_ai_extra_installs_the_declared_gateway_sdk() -> None:
     assert GatewayConfig.__module__ == "ai_gateway_client.config"
 
 
-@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+@pytest.mark.parametrize("entry", [ai_audit.run_taco_ai_audit])
 def test_installed_sdk_consumes_codex_job_without_feedback_or_api_fallback(monkeypatch, entry):
     from ai_gateway_client import gateway_client
 
@@ -181,7 +181,7 @@ def test_ai_audit_skips_when_gateway_is_unavailable(monkeypatch) -> None:
 
     payload = _run_ai_audit(
         {"canonical_route": "true_crisis", "suggested_action": "defend"},
-        audit_kind="crisis_response_shadow",
+        audit_kind="taco_rebound_shadow",
         messages=({"role": "user", "content": "audit"},),
         enabled=True,
         api_key="sk-primary",
@@ -201,7 +201,7 @@ def test_ai_audit_rejects_custom_completion_client(monkeypatch) -> None:
 
     payload = _run_ai_audit(
         {"canonical_route": "true_crisis", "suggested_action": "defend"},
-        audit_kind="crisis_response_shadow",
+        audit_kind="taco_rebound_shadow",
         messages=({"role": "user", "content": "audit"},),
         enabled=True,
         completion_client=lambda *_args: calls.append("custom") or "{}",
@@ -225,7 +225,7 @@ def test_gateway_uses_default_model_without_local_provider_key(monkeypatch) -> N
     )
     payload = _run_ai_audit(
         {"canonical_route": "true_crisis", "suggested_action": "defend"},
-        audit_kind="crisis_response_shadow",
+        audit_kind="taco_rebound_shadow",
         messages=({"role": "user", "content": "audit"},),
         enabled=True,
         codex_enabled=False,
@@ -267,7 +267,7 @@ def test_gateway_success_calls_analyze_and_execute(monkeypatch) -> None:
     ]
 
 
-@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+@pytest.mark.parametrize("entry", [ai_audit.run_taco_ai_audit])
 def test_codex_execution_is_advisory_without_feedback_or_route_changes(monkeypatch, entry):
     from copy import deepcopy
 
@@ -424,7 +424,7 @@ def _install_analysis_result(monkeypatch, result):
 
 
 @pytest.mark.parametrize("status", ["ok", "advisory"])
-@pytest.mark.parametrize("entry", [ai_audit.run_crisis_ai_audit, ai_audit.run_taco_ai_audit])
+@pytest.mark.parametrize("entry", [ai_audit.run_taco_ai_audit])
 def test_research_content_preserves_status_controls_and_feedback_boundary(monkeypatch, status, entry):
     import json
     from copy import deepcopy
@@ -530,3 +530,488 @@ def test_original_prompts_distinguish_false_zero_and_missing(builder, boolean_fi
     assert user["data_freshness"] == "0"
     assert user["as_of"] == ""
     assert source == {**dict.fromkeys(boolean_fields, False), "data_freshness": 0}
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_crisis_legacy_path_is_closed_even_with_old_authorization(monkeypatch, enabled):
+    monkeypatch.setenv("CODEX_AUDIT_SERVICE_URL", "https://gateway.invalid")
+    def forbidden(*args, **kwargs):
+        pytest.fail("Crisis must not enter the retired gateway or feedback path")
+    for name in ("build_ai_audit_endpoints", "_complete_with_endpoint", "_report_shadow_disagreement"):
+        monkeypatch.setattr(ai_audit, name, forbidden)
+    result = ai_audit.run_crisis_ai_audit(
+        {"canonical_route": "no_action"}, enabled=enabled, codex_enabled=True,
+        api_key="synthetic", fallback_api_key="synthetic", anthropic_api_key="synthetic",
+    )
+    assert result["status"] == ("skipped" if enabled else "disabled")
+    if enabled:
+        assert result["skip_reason"] == "native_context_required"
+        assert result["attempts"] == []
+    assert result["final_route_unchanged"] is True
+
+
+@pytest.fixture
+def native_instance():
+    pytest.importorskip("ai_service.scenarios")
+    return {
+        "schema_version": "scenario.instance.v1", "id": "synthetic.crisis-audit",
+        "project": ai_audit.CRISIS_NATIVE_PROJECT, "template": "report_audit", "template_version": "1",
+        "enabled": True, "config_revision": "a" * 40,
+        "inputs": {"manifest_ref": "synthetic.report", "data_classification": "synthetic",
+                   "fields": {"materials_ref": "synthetic.report", "checklist_ref": "synthetic.consistency"}},
+        "stages": [{"phase": "review", "role": "primary", "worker_type": "dot",
+                    "route_ref": "synthetic.dot", "model_ref": "synthetic.model", "tool_sets": [],
+                    "limits": {"max_media_bytes": 0}}],
+        "executor_ref": None, "gate_refs": [], "schedule": {"kind": "manual"},
+        "output": {"schema_ref": ai_audit.AI_AUDIT_SCHEMA_VERSION, "evidence_store_ref": "synthetic.audit",
+                   "public_projection_ref": "synthetic.advisory", "retention_policy_ref": "synthetic.retention",
+                   "sink_ref": "synthetic.advisory"},
+        "approvals": {"activation_ref": "synthetic.offline-only"},
+    }
+
+
+def _native_task(instance, payload=None, **changes):
+    from datetime import datetime, timezone
+    values = dict(source_ref="synthetic.frozen-report", source_revision="b" * 40, source_sha256="c" * 64,
+                  occurrence="synthetic.report-1", submitted_at=datetime(2099, 1, 1, tzinfo=timezone.utc))
+    values.update(changes)
+    return ai_audit.prepare_crisis_shadow_audit(
+        payload if payload is not None else {
+            "schema_version": "crisis_response_shadow.v1", "profile": "crisis_response_shadow",
+            "canonical_route": "no_action", "suggested_action": "watch_only",
+        },
+        instance=instance, **values,
+    )
+
+
+def _native_record(task):
+    from copy import deepcopy
+    return {"id": "synthetic-task", "owner": ai_audit.CRISIS_NATIVE_PROJECT, "provider": "dot",
+            "status": "completed", "result_kind": "advisory", "attempt": "synthetic-attempt",
+            "worker": "synthetic-worker", "revision": 1, "request": deepcopy(task.request),
+            "output": {"verdict": "data_insufficient", "route_assessment": "insufficient_context",
+                       "confidence": "unknown", "summary": "The frozen report lacks evidence.", "key_risks": [],
+                       "data_gaps": ["Evidence, freshness and observation date are missing."],
+                       "human_review_recommended": True}}
+
+
+def test_native_crisis_prepare_reuses_projection_and_quant_identity(native_instance):
+    from ai_service.scenarios.pilot import digest
+    source = {"schema_version": "crisis_response_shadow.v1", "profile": "crisis_response_shadow",
+              "canonical_route": "no_action", "suggested_action": "watch_only", "kill_switch_active": False,
+              "raw_bars": "excluded", "account": "excluded", "orders": "excluded"}
+    task = _native_task(native_instance, source)
+    manifest = task.request["materials"][0]["input_manifest"]
+    assert manifest["report"] == json.loads(ai_audit._build_crisis_audit_messages(source)[1]["content"])
+    assert "excluded" not in json.dumps(task.request)
+    assert manifest["report"]["kill_switch_active"] == "False"
+    assert task.spec["input_manifest_sha256"] == digest(manifest)
+    assert (task.spec["template"], task.spec["phase"], task.spec["role"]) == ("report_audit", "review", "primary")
+    assert task.request["mode"] == "agent"
+    assert task.request["profile"] == "synthetic.dot"
+    assert set(task.request["output_schema"]["properties"]) == {
+        "verdict", "route_assessment", "confidence", "summary", "key_risks", "data_gaps",
+        "human_review_recommended",
+    }
+    source["canonical_route"] = "mutated"
+    native_instance["config_revision"] = "d" * 40
+    assert manifest["report"]["canonical_route"] == "no_action"
+    assert task.spec["config_revision"] == "a" * 40
+
+
+@pytest.mark.parametrize("section,key,value", [
+    (None, "enabled", False), (None, "project", "Other/Project"), (None, "template", "protocol_probe"),
+    (None, "executor_ref", "synthetic.executor"), ("schedule", "kind", "event"),
+    ("inputs", "data_classification", "restricted"), ("output", "schema_ref", "other.schema"),
+    ("stage", "worker_type", "grok"), ("stage", "worker_type", "api"),
+    ("stage", "phase", "confirm"), ("stage", "role", "second-opinion"),
+    ("stage", "tool_sets", ["synthetic.tool"]), ("limits", "max_calls", 2),
+    ("limits", "max_active", 2), ("limits", "max_media_bytes", 1),
+    ("limits", "monthly_budget_usd", 1), ("limits", "max_request_bytes", 1),
+    ("fields", "small_review", True),
+])
+def test_native_crisis_rejects_unapproved_scope_and_routes(native_instance, section, key, value):
+    from ai_service.scenarios import ContractError
+    target = native_instance if section is None else (
+        native_instance["stages"][0] if section == "stage" else
+        native_instance["stages"][0]["limits"] if section == "limits" else
+        native_instance["inputs"]["fields"] if section == "fields" else native_instance[section])
+    target[key] = value
+    with pytest.raises(ContractError):
+        _native_task(native_instance)
+
+
+@pytest.mark.parametrize("field,value", [("source_ref", "/local/report.json"), ("source_sha256", "bad"),
+                                        ("source_revision", "main")])
+def test_native_crisis_requires_precise_provenance(native_instance, field, value):
+    from ai_service.scenarios import ContractError
+    with pytest.raises(ContractError):
+        _native_task(native_instance, **{field: value})
+
+
+def test_native_crisis_verified_result_is_separate_advisory(native_instance, monkeypatch):
+    from ai_service.scenarios.pilot import digest
+    task = _native_task(native_instance)
+    record = _native_record(task)
+    original = json.dumps(record, sort_keys=True)
+    monkeypatch.setattr(ai_audit, "_report_shadow_disagreement", lambda **_: pytest.fail("no feedback"))
+    result = ai_audit.verify_crisis_shadow_audit(task, record, task_id=record["id"])
+    assert result["status"] == "advisory"
+    assert result["confidence"] is None
+    assert result["mode"] == "shadow_only"
+    assert result["final_route_unchanged"] is True
+    for key in ("broker_order_allowed", "live_allocation_mutation_allowed", "allocation_recommendation_allowed"):
+        assert result["execution_controls"][key] is False
+    assert result["native_verification"]["output_sha256"] == digest(record["output"])
+    assert original == json.dumps(record, sort_keys=True)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("id", "other-task"), ("owner", "Other/Project"), ("provider", "grok"), ("provider", "api"),
+    ("status", "queued"), ("status", "outcome_unknown"), ("status", "cancelled"), ("status", "invalid_output"),
+    ("status", "failed"), ("result_kind", "final"), ("attempt", None), ("worker", None), ("worker", 7), ("attempt", True), ("revision", 2), ("revision", True),
+])
+def test_native_crisis_rejects_wrong_identity_or_lifecycle(native_instance, field, value):
+    from ai_service.scenarios import ContractError
+    task = _native_task(native_instance)
+    record = _native_record(task)
+    record[field] = value
+    with pytest.raises(ContractError):
+        ai_audit.verify_crisis_shadow_audit(task, record, task_id="synthetic-task")
+
+
+@pytest.mark.parametrize("field", ["config_revision", "input_manifest_sha256", "operation_key", "project"])
+def test_native_crisis_rejects_changed_request_binding(native_instance, field):
+    from ai_service.scenarios import ContractError
+    task = _native_task(native_instance)
+    record = _native_record(task)
+    record["request"]["materials"][0]["scenario_task"][field] = "changed"
+    with pytest.raises(ContractError):
+        ai_audit.verify_crisis_shadow_audit(task, record, task_id="synthetic-task")
+
+
+@pytest.mark.parametrize("field,value", [
+    ("canonical_route", "trade"), ("suggested_action", "buy"), ("risk_multiplier_suggestion", 2),
+    ("kill_switch_active", False), ("execution_controls", {"broker_order_allowed": True}),
+    ("mode", "live"), ("status", "ok"), ("confidence", 1.1), ("confidence", float("nan")),
+    ("confidence", float("inf")), ("summary", "x" * 601), ("route_assessment", "x" * 97),
+    ("key_risks", ["x"] * 6), ("key_risks", ["x" * 161]), ("data_gaps", []),
+    ("verdict", "agree"), ("human_review_recommended", False),
+])
+def test_native_crisis_rejects_output_overreach_and_sparse_evidence_claims(native_instance, field, value):
+    from ai_service.scenarios import ContractError
+    task = _native_task(native_instance)
+    record = _native_record(task)
+    record["output"][field] = value
+    with pytest.raises(ContractError):
+        ai_audit.verify_crisis_shadow_audit(task, record, task_id="synthetic-task")
+
+
+def _report_cli_context(tmp_path, native_instance):
+    import hashlib
+    import importlib.util
+    module_spec = importlib.util.spec_from_file_location(
+        "audit_crisis_shadow_report", Path(__file__).parents[1] / "scripts/audit_crisis_shadow_report.py")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    report = tmp_path / "frozen.json"
+    report.write_text(json.dumps({"schema_version": "crisis_response_shadow.v1", "profile": "crisis_response_shadow",
+                                  "canonical_route": "no_action",
+                                  "suggested_action": "watch_only"}))
+    instance = tmp_path / "instance.json"
+    instance.write_text(json.dumps(native_instance))
+    directory = tmp_path / "audit"
+    args = ["--enabled", "--resource", "https://quant.invalid", "--audience", "synthetic.audience",
+            "--instance", str(instance), "--report", str(report),
+            "--source-ref", "synthetic.frozen-report", "--source-revision", "b" * 40,
+            "--source-sha256", hashlib.sha256(report.read_bytes()).hexdigest(),
+            "--occurrence", "synthetic.report-1", "--submitted-at", "2099-01-01T00:00:00Z",
+            "--audit-dir", str(directory)]
+    return module, args, report, instance, directory
+
+
+def _native_transport(directory, *, unknown=False, overreach=False):
+    from ai_service.client import TaskClient
+    calls = []
+    class SyntheticTransport:
+        def request(self, url, *, method, headers, body=b""):
+            calls.append((method, url))
+            assert url.startswith("https://quant.invalid/v1/tasks")
+            if method == "POST":
+                intent_path, = directory.glob("*.intent.json")
+                assert intent_path.stat().st_mode & 0o777 == 0o600
+                intent = json.loads(intent_path.read_text())
+                assert headers["Idempotency-Key"] == intent["operation_key"]
+                assert json.loads(body) == intent["request"]
+                self.task = types.SimpleNamespace(spec=intent["spec"], request=intent["request"])
+                if unknown:
+                    raise TimeoutError("synthetic unknown submission")
+                result = {"id": "synthetic-task", "status": "queued"}
+            else:
+                assert url == "https://quant.invalid/v1/tasks/synthetic-task"
+                result = _native_record(self.task)
+                if overreach:
+                    result["output"]["execution_controls"] = {"broker_order_allowed": True}
+            return types.SimpleNamespace(status=200, body=json.dumps(result).encode())
+    return TaskClient("https://quant.invalid", "synthetic", transport=SyntheticTransport()), calls
+
+
+def test_native_cli_synthetic_transport_submit_and_readback(tmp_path, native_instance, capsys):
+    module, args, report, instance, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory)
+    before = report.read_bytes(), instance.read_bytes()
+    assert module.main(["dry-run", *args], client=client) == 0
+    assert calls == [] and not directory.exists()
+    assert module.main(["submit", *args], client=client) == 0
+    assert module.main(["verify", *args], client=client) == 0
+    assert [method for method, _ in calls] == ["POST", "GET"]
+    advisory, = directory.glob("*.advisory.json")
+    assert json.loads(advisory.read_text())["status"] == "advisory"
+    assert before == (report.read_bytes(), instance.read_bytes())
+    assert all(path.stat().st_mode & 0o777 == 0o600 for path in directory.iterdir())
+    assert str(tmp_path) not in capsys.readouterr().out
+    assert module.main(["submit", *args], client=client) == 1
+    assert len(calls) == 2
+
+
+def test_native_cli_unknown_submission_retains_intent_and_never_resubmits(tmp_path, native_instance, capsys):
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory, unknown=True)
+    assert module.main(["submit", *args], client=client) == 1
+    intent, = directory.glob("*.intent.json")
+    frozen = intent.read_bytes()
+    assert module.main(["submit", *args], client=client) == 1
+    assert module.main(["verify", *args], client=client) == 1
+    assert [method for method, _ in calls] == ["POST"]
+    assert frozen == intent.read_bytes()
+    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert all(response["status"] == "unverified" for response in responses)
+    assert not list(directory.glob("*.submitted.json"))
+    assert not list(directory.glob("*.advisory.json"))
+
+
+@pytest.mark.parametrize("change", ["report", "instance", "intent", "output"])
+def test_native_cli_rejects_changed_context_and_output(tmp_path, native_instance, change):
+    module, args, report, instance, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory, overreach=change == "output")
+    assert module.main(["submit", *args], client=client) == 0
+    if change == "report":
+        report.write_text(report.read_text() + " ")
+    elif change == "instance":
+        config = json.loads(instance.read_text())
+        config["config_revision"] = "d" * 40
+        instance.write_text(json.dumps(config))
+    elif change == "intent":
+        intent, = directory.glob("*.intent.json")
+        value = json.loads(intent.read_text())
+        value["request_sha256"] = "d" * 64
+        intent.write_text(json.dumps(value))
+    assert module.main(["verify", *args], client=client) == 1
+    assert [method for method, _ in calls] == (["POST", "GET"] if change == "output" else ["POST"])
+    assert not list(directory.glob("*.advisory.json"))
+
+
+def test_native_cli_default_disabled_without_sdk_or_client(tmp_path, monkeypatch, native_instance):
+    module, _, _, _, _ = _report_cli_context(tmp_path, native_instance)
+    monkeypatch.setitem(sys.modules, "ai_service.scenarios", None)
+    assert module.main([]) == 0
+
+
+def test_native_cli_audit_directory_cannot_contain_inputs(tmp_path, native_instance):
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory)
+    args[-1] = str(tmp_path)
+    assert module.main(["submit", *args], client=client) == 1
+    assert calls == []
+    assert not list(tmp_path.glob("*.intent.json"))
+
+
+def test_native_crisis_complete_evidence_positive_remains_advisory(native_instance):
+    from copy import deepcopy
+    source = {
+        "schema_version": "crisis_response_shadow.v1", "profile": "crisis_response_shadow",
+        "as_of": "2099-01-01", "canonical_route": "no_action", "suggested_action": "watch_only",
+        "would_trade_if_enabled": False, "watch_label": "synthetic", "price_scanner_active": False,
+        "bubble_fragility_active": False, "kill_switch_active": False, "kill_switch_reason": "",
+        "data_freshness": {"status": "fresh"}, "data_quality": {"quality_score": 1.0},
+        "evidence": {"financial_context": False, "credit_context": False},
+        "audit_summary": {"final_route": "no_action"},
+    }
+    original = deepcopy(source)
+    task = _native_task(native_instance, source)
+    record = _native_record(task)
+    record["output"].update(verdict="agree", confidence=0.8, summary="The supplied flags match the route.",
+                            data_gaps=[], human_review_recommended=False)
+    result = ai_audit.verify_crisis_shadow_audit(task, record, task_id="synthetic-task")
+    assert result["status"] == "advisory"
+    assert result["verdict"] == "agree"
+    assert result["deterministic_route"] == "no_action"
+    assert source == original
+
+
+def test_native_review_resource_change_cannot_read_back_another_service(tmp_path, native_instance):
+    from ai_service.client import TaskClient
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory)
+    assert module.main(["submit", *args], client=client) == 0
+    changed_client = TaskClient("https://other-quant.invalid", "synthetic", transport=client.transport)
+    assert module.main(["verify", *args], client=changed_client) == 1
+    assert [method for method, _ in calls] == ["POST"]
+    assert not list(directory.glob("*.advisory.json"))
+    expected = {"resource": "https://quant.invalid", "audience": "synthetic.audience"}
+    for suffix in ("intent", "submitted"):
+        receipt, = directory.glob("*." + suffix + ".json")
+        assert json.loads(receipt.read_text())["service"] == expected
+
+
+@pytest.mark.parametrize("field", ["resource", "audience", "submitted_resource", "submitted_audience"])
+def test_native_review_service_context_changes_are_rejected_before_get(tmp_path, native_instance, field):
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory)
+    assert module.main(["submit", *args], client=client) == 0
+    value = "https://other-quant.invalid" if field.endswith("resource") else "synthetic.other-audience"
+    if field.startswith("submitted_"):
+        receipt, = directory.glob("*.submitted.json")
+        data = json.loads(receipt.read_text())
+        data["service"][field.removeprefix("submitted_")] = value
+        receipt.write_text(json.dumps(data))
+    else:
+        args[args.index("--" + field) + 1] = value
+    assert module.main(["verify", *args], client=client) == 1
+    assert [method for method, _ in calls] == ["POST"]
+    assert not list(directory.glob("*.advisory.json"))
+
+
+def test_native_review_resource_normalization_keeps_same_service_positive(tmp_path, native_instance):
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory)
+    args[args.index("--resource") + 1] = "https://QUANT.invalid:443/"
+    assert module.main(["submit", *args], client=client) == 0
+    args[args.index("--resource") + 1] = "https://quant.invalid"
+    assert module.main(["verify", *args], client=client) == 0
+    assert [method for method, _ in calls] == ["POST", "GET"]
+
+
+@pytest.mark.parametrize("resource", [None, "http://quant.invalid", "https://user@quant.invalid",
+                                     "https://quant.invalid/?query", "https://quant.invalid/#fragment",
+                                     "https://other-quant.invalid"])
+def test_native_review_requires_approved_resource_before_post(tmp_path, native_instance, resource):
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory)
+    offset = args.index("--resource")
+    if resource is None:
+        del args[offset:offset + 2]
+    else:
+        args[offset + 1] = resource
+    assert module.main(["submit", *args], client=client) == 1
+    assert calls == []
+    assert not list(directory.glob("*.submitted.json"))
+
+
+@pytest.mark.parametrize("change", ["resource", "audience", "missing_approved_audience"])
+def test_native_review_workload_context_mismatch_does_not_construct_client(
+    tmp_path, native_instance, monkeypatch, change,
+):
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    monkeypatch.setenv("AI_SERVICE_URL", "https://quant.invalid")
+    monkeypatch.setenv("AI_SERVICE_AUDIENCE", "synthetic.audience")
+    if change == "resource":
+        monkeypatch.setenv("AI_SERVICE_URL", "https://other-quant.invalid")
+    elif change == "audience":
+        monkeypatch.setenv("AI_SERVICE_AUDIENCE", "synthetic.other-audience")
+    else:
+        offset = args.index("--audience")
+        del args[offset:offset + 2]
+    factories = []
+    monkeypatch.setattr("ai_service.client.client_from_env", lambda **_: factories.append(True))
+    assert module.main(["submit", *args]) == 1
+    assert factories == []
+    assert not list(directory.glob("*.submitted.json"))
+
+
+def test_native_review_explicit_workload_context_positive_does_not_persist_token(
+    tmp_path, native_instance, monkeypatch,
+):
+    module, args, _, _, directory = _report_cli_context(tmp_path, native_instance)
+    client, calls = _native_transport(directory)
+    client.token = "synthetic-private-token"
+    monkeypatch.setenv("AI_SERVICE_URL", "https://quant.invalid/")
+    monkeypatch.setenv("AI_SERVICE_AUDIENCE", "synthetic.audience")
+    monkeypatch.setattr("ai_service.client.client_from_env", lambda **_: client)
+    assert module.main(["submit", *args]) == 0
+    assert module.main(["verify", *args]) == 0
+    assert [method for method, _ in calls] == ["POST", "GET"]
+    assert all("synthetic-private-token" not in path.read_text() for path in directory.iterdir())
+
+
+def _identified_complete_report():
+    return {"schema_version": "crisis_response_shadow.v1", "profile": "crisis_response_shadow",
+            "as_of": "2099-01-01", "canonical_route": "no_action", "suggested_action": "watch_only",
+            "evidence": {"financial_context": False, "benchmark_drawdown": 0.0},
+            "data_freshness": {"price_data_age_days": 0},
+            "data_quality": {"checks": {"price_data_fresh": True}}}
+
+
+@pytest.mark.parametrize("field", ["evidence", "data_freshness", "data_quality"])
+@pytest.mark.parametrize("value", [{}, [], False, 0, None, "unknown"])
+def test_native_review_empty_or_wrong_type_evidence_cannot_be_agreement(native_instance, field, value):
+    from ai_service.scenarios import ContractError
+    source = _identified_complete_report()
+    source[field] = value
+    task = _native_task(native_instance, source)
+    record = _native_record(task)
+    record["output"].update(verdict="agree", data_gaps=[], human_review_recommended=False)
+    with pytest.raises(ContractError):
+        ai_audit.verify_crisis_shadow_audit(task, record, task_id="synthetic-task")
+    insufficient = ai_audit.verify_crisis_shadow_audit(task, _native_record(task), task_id="synthetic-task")
+    assert insufficient["verdict"] == "data_insufficient"
+    assert insufficient["data_gaps"]
+    assert insufficient["human_review_recommended"] is True
+
+
+@pytest.mark.parametrize("gap", ["", "   ", "\t\r\n", "\u2003"])
+def test_native_review_sparse_gap_must_remain_nonblank(native_instance, gap):
+    from ai_service.scenarios import ContractError
+    task = _native_task(native_instance)
+    record = _native_record(task)
+    record["output"]["data_gaps"] = [gap]
+    with pytest.raises(ContractError):
+        ai_audit.verify_crisis_shadow_audit(task, record, task_id="synthetic-task")
+
+
+def test_native_review_sparse_gap_is_retained_after_normalization(native_instance):
+    task = _native_task(native_instance)
+    record = _native_record(task)
+    record["output"]["data_gaps"] = ["  evidence is missing \t "]
+    advisory = ai_audit.verify_crisis_shadow_audit(task, record, task_id="synthetic-task")
+    assert advisory["data_gaps"] == ["evidence is missing"]
+    assert advisory["verdict"] == "data_insufficient"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("schema_version", "taco_rebound_shadow.v1"), ("profile", "taco_rebound_shadow"),
+    ("schema_version", None), ("profile", None), ("profile", "synthetic"),
+])
+def test_native_review_report_identity_must_be_crisis_before_projection(native_instance, field, value):
+    from ai_service.scenarios import ContractError
+    source = _identified_complete_report()
+    if value is None:
+        source.pop(field)
+    else:
+        source[field] = value
+    with pytest.raises(ContractError):
+        _native_task(native_instance, source)
+
+
+def test_native_review_other_report_identity_is_rejected_before_post(tmp_path, native_instance):
+    import hashlib
+    module, args, report, _, directory = _report_cli_context(tmp_path, native_instance)
+    source = _identified_complete_report()
+    source.update(schema_version="taco_rebound_shadow.v1", profile="taco_rebound_shadow")
+    report.write_text(json.dumps(source))
+    args[args.index("--source-sha256") + 1] = hashlib.sha256(report.read_bytes()).hexdigest()
+    client, calls = _native_transport(directory)
+    assert module.main(["submit", *args], client=client) == 1
+    assert module.main(["verify", *args], client=client) == 1
+    assert calls == []
+    assert not directory.exists()

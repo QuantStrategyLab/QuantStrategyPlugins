@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ai = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/QuantAIService.git@65c8bcf432f578f657c12d5dab0e16ebec0bef5a"]
+native-audit = ["quant-ai-service @ git+https://github.com/QuantStrategyLab/QuantAIService.git@f318d0ad1183fcf07574f6e00baf8809c8552b8d"]
 test = ["build>=1.2", "pytest>=8", "ruff==0.17.1"]
 
 [project.scripts]

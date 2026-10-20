@@ -49,3 +49,78 @@ jobs:
         run: ruff check .
       - name: Build package
         run: python -m build
+
+  native-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UV_PROJECT_ENVIRONMENT: .venv
+      UV_PYTHON_DOWNLOADS: never
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install fixed CI resolver
+        run: python -m pip --isolated install --index-url https://pypi.org/simple "uv==0.11.19"
+      - name: Install locked optional native SDK
+        run: |
+          set -euo pipefail
+          uv sync --locked --python "$(command -v python)" --extra test --extra native-audit
+          uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
+      - name: Verify installed native SDK identity without requests
+        run: |
+          "$UV_PROJECT_ENVIRONMENT/bin/python" - <<'PY'
+          import json
+          from importlib.metadata import distribution
+          from pathlib import Path
+          import tomllib
+          from ai_service.client import TaskClient
+          from ai_service.scenarios import compile_task_spec
+
+          requirement, = tomllib.loads(Path("pyproject.toml").read_text())["project"]["optional-dependencies"]["native-audit"]
+          expected = requirement.rsplit("@", 1)[1]
+          sdk = distribution("quant-ai-service")
+          source = json.loads(sdk.read_text("direct_url.json"))
+          if sdk.version != "2.0.13" or source["vcs_info"]["commit_id"] != expected:
+              raise SystemExit("native SDK distribution identity mismatch")
+          if TaskClient.__module__ != "ai_service.client" or not callable(compile_task_spec):
+              raise SystemExit("native SDK import capability mismatch")
+          print(f"Native SDK {sdk.version}, commit={expected}; imports verified, no requests")
+          PY
+      - name: Run native regressions offline with zero skips
+        run: |
+          "$UV_PROJECT_ENVIRONMENT/bin/python" - <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+          import xml.etree.ElementTree as ET
+          import pytest
+
+          result_file = Path(os.environ["RUNNER_TEMP"]) / "native-audit.xml"
+          result_file.unlink(missing_ok=True)
+          blocked = []
+          def guard(event, args):
+              if event in {"socket.connect", "socket.bind", "socket.getaddrinfo", "subprocess.Popen", "os.system"}:
+                  blocked.append(event)
+                  raise RuntimeError("native-audit tests must use offline synthetic transports")
+          sys.addaudithook(guard)
+          code = pytest.main(["-vv", "--no-header", "-p", "no:cacheprovider",
+                              "tests/test_ai_audit.py", "-k", "native", f"--junitxml={result_file}"])
+          if code:
+              raise SystemExit(code)
+          cases = list(ET.parse(result_file).iter("testcase"))
+          review = sum(case.get("name", "").startswith("test_native_review_") for case in cases)
+          skipped = sum(case.find("skipped") is not None for case in cases)
+          failures = sum(case.find("failure") is not None for case in cases)
+          errors = sum(case.find("error") is not None for case in cases)
+          if len(cases) != 114 or review != 45 or not all(case.get("name", "").startswith("test_native_") for case in cases):
+              raise SystemExit(f"native cohort mismatch: collected={len(cases)} review={review}")
+          if skipped or failures or errors:
+              raise SystemExit(f"native zero-skip gate failed: skipped={skipped} failures={failures} errors={errors}")
+          if blocked:
+              raise SystemExit(f"native tests attempted external I/O: {blocked}")
+          print("native-audit gate: collected=114 passed=114 review=45 skipped=0 errors=0 failures=0 external_io=0")
+          PY

@@ -20,7 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 ai = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/QuantAIService.git@65c8bcf432f578f657c12d5dab0e16ebec0bef5a"]
 native-audit = ["quant-ai-service @ git+https://github.com/QuantStrategyLab/QuantAIService.git@3578c539ebe704358fbace29412a64090dda7f08"]
-test = ["build>=1.2", "pytest>=8", "ruff==0.17.1"]
+test = ["build>=1.2", "pytest>=8", "ruff==0.17.2"]
 
 [project.scripts]
 qsp-build-crisis-response-shadow-signal = "quant_strategy_plugins.crisis_response_shadow_plugin:main"

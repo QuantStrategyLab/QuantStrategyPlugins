@@ -36,6 +36,8 @@ python -m pytest -q
 CI also runs an isolated native-SDK job with zero skips. Treat a skipped native
 test as unverified rather than passed.
 
+Organization documentation rules are checked by `python scripts/check_style.py`, which also runs in CI as the `Documentation check` job.
+
 ## Naming and documentation
 
 - Developer documentation is English by default; Chinese siblings use

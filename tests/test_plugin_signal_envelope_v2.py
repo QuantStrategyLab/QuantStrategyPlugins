@@ -137,3 +137,24 @@ def test_rejects_non_finite_payload_numbers() -> None:
 
     with pytest.raises(SignalEnvelopeValidationError, match="non-finite"):
         validate_signal_envelope(envelope)
+
+
+def test_consumer_binding_rejects_untrusted_and_stale_envelopes() -> None:
+    from quant_strategy_plugins.plugin_signal_envelope_v2 import validate_signal_for_consumer
+    envelope = _load_fixture('valid_signal.json')
+    bindings = {'expected_plugin_id': envelope['plugin_id'], 'expected_producer': envelope['producer'],
+                'expected_input': envelope['input'], 'expected_payload_sha256': envelope['payload_sha256'],
+                'decision_date': envelope['input']['date_cutoff']}
+    assert validate_signal_for_consumer(envelope, **bindings) == envelope
+    legacy_bindings = {key: value for key, value in bindings.items() if key != 'expected_payload_sha256'}
+    assert validate_signal_for_consumer(envelope, **legacy_bindings) == envelope
+    with pytest.raises(SignalEnvelopeValidationError):
+        validate_signal_for_consumer(envelope, **{**bindings, 'decision_date': '2099-01-01'})
+    with pytest.raises(SignalEnvelopeValidationError):
+        validate_signal_for_consumer(envelope, **{**bindings, 'expected_producer': {**envelope['producer'], 'revision': 'a' * 40}})
+    modified = {**envelope, 'payload': {**envelope['payload'], 'value': 'tampered'}}
+    with pytest.raises(SignalEnvelopeValidationError):
+        validate_signal_for_consumer(modified, **bindings)
+    modified['payload_sha256'] = payload_sha256(modified['payload'])
+    with pytest.raises(SignalEnvelopeValidationError, match="consumer payload mismatch"):
+        validate_signal_for_consumer(modified, **bindings)

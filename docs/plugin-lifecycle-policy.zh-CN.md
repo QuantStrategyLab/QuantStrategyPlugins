@@ -1,6 +1,6 @@
 # 插件生命周期策略
 
-[English](./plugin_lifecycle_policy.md)
+[English](./plugin-lifecycle-policy.md)
 
 本文定义策略插件的生命周期阶梯和门槛模型。
 

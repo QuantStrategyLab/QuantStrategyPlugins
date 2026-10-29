@@ -1,6 +1,6 @@
 # Plugin Lifecycle Policy
 
-[简体中文](./plugin_lifecycle_policy.zh-CN.md)
+[简体中文](./plugin-lifecycle-policy.zh-CN.md)
 
 This document defines the lifecycle ladder and gate model for strategy plugins.
 

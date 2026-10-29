@@ -78,3 +78,9 @@ future P3 independently recomputes and verifies it
 旧 `market_regime_control`、其 `latest_signal.json` 和 legacy resolver 只能保留用于
 历史回放或受控迁移。它们在没有明确 P2 绑定和 P3 重算证明前，不是 V2 信号来源，也不得
 被策略名称自动挂载。
+
+### 消费者绑定检查
+
+`validate_signal_for_consumer` 复用 envelope 验证，将插件、完整生产者身份、输入来源和决策日期与消费者独立提供的冻结绑定比较，只接受同一日截止。调用方须从可信配置取得预期绑定；哈希一致或自声明身份不能证明生产者身份或输入数据真实性。该检查不授予配置仓位或执行权限，也不等于消费回执。
+
+通用校验器省略可选 `expected_payload_sha256` 时保持旧调用兼容。UES Global ETF 观察入口要求在可信绑定中单独提供有效摘要；缺失或非法时观察结果不可用。

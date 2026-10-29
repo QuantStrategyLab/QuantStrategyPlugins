@@ -94,6 +94,45 @@ def validate_signal_envelope(envelope: Mapping[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def validate_signal_for_consumer(
+    envelope: Mapping[str, Any],
+    *,
+    expected_plugin_id: str,
+    expected_producer: Mapping[str, Any],
+    expected_input: Mapping[str, Any],
+    decision_date: str,
+    expected_payload_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Validate a signal against independently supplied frozen consumer bindings.
+
+    The caller is responsible for obtaining the expected bindings from a trusted
+    configuration. A self-consistent envelope alone is not proof of origin.
+    This daily contract accepts only the decision date; it grants no trading
+    authority and does not authenticate a producer or verify source data.
+    When an independent payload digest is supplied it is also enforced; without
+    one this function only checks the payload's self-declared digest.
+    """
+    normalized = validate_signal_envelope(envelope)
+    _validate_plugin_id(expected_plugin_id)
+    expected_producer = _normalize_json_value(expected_producer, "expected_producer")
+    expected_input = _normalize_json_value(expected_input, "expected_input")
+    _validate_producer(expected_producer)
+    _validate_input(expected_input)
+    if normalized["plugin_id"] != expected_plugin_id:
+        raise SignalEnvelopeValidationError("consumer plugin mismatch")
+    if normalized["producer"] != expected_producer:
+        raise SignalEnvelopeValidationError("consumer producer mismatch")
+    if normalized["input"] != expected_input:
+        raise SignalEnvelopeValidationError("consumer input mismatch")
+    if expected_payload_sha256 is not None:
+        _validate_sha256(expected_payload_sha256, "expected_payload_sha256")
+        if normalized["payload_sha256"] != expected_payload_sha256:
+            raise SignalEnvelopeValidationError("consumer payload mismatch")
+    if decision_date != expected_input["date_cutoff"]:
+        raise SignalEnvelopeValidationError("consumer decision date mismatch")
+    return normalized
+
+
 def build_signal_envelope(
     *,
     plugin_id: str,

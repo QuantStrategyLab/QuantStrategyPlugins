@@ -31,7 +31,12 @@ jobs:
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
             git diff --check "origin/${{ github.base_ref }}...HEAD"
           else
-            git diff-tree --check --no-commit-id --root -r HEAD
+            # -M matters. `git diff-tree` is plumbing and does no rename
+            # detection unless asked, so a renamed file is compared as if it
+            # were wholly new and every trailing space already in it is
+            # reported against this commit. `git diff` above does detect
+            # renames, which is why only this branch has the problem.
+            git diff-tree --check --no-commit-id --root -r -M HEAD
           fi
       - uses: actions/setup-python@v6
         with:

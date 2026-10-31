@@ -67,6 +67,8 @@ Organization documentation rules are checked by `python scripts/check_style.py`,
 
 ## Do not
 
+- Only the owner, or a reviewer explicitly authorized by the owner, may apply the `owner-approved` label; coding agents must never apply it to their own PRs.
+
 - Do not describe a plugin as live or executable because it is mounted or
   registered.
 - Do not add broker connectivity, order submission or account credentials.

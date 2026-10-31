@@ -1,0 +1,7 @@
+
+
+# Risk-sensitive changes require the repository owner.
+/.github/CODEOWNERS @Pigbibi
+/.github/workflows/ @Pigbibi
+/scripts/backtest_macro_risk_governor_params.py @Pigbibi
+/src/quant_strategy_plugins/macro_risk_governor_plugin.py @Pigbibi

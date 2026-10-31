@@ -8,6 +8,9 @@ from typing import Any, Callable, Mapping, Sequence
 
 import pandas as pd
 
+from ._config_values import as_bool as _as_bool
+from ._config_values import as_str_tuple as _as_str_tuple
+from ._config_values import parse_credit_pairs as _parse_credit_pairs
 from .artifacts import write_json
 from .benchmark_drawdown_guard import build_benchmark_drawdown_guard_signal
 from .crisis_response_shadow_plugin import (
@@ -259,34 +262,8 @@ def load_plugin_config(path: str | Path) -> dict[str, Any]:
     return tomllib.loads(config_path.read_text(encoding="utf-8"))
 
 
-def _as_bool(value: Any, *, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-def _as_str_tuple(value: Any) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        raw_values = value.split(",")
-    else:
-        raw_values = list(value)
-    return tuple(str(item).strip() for item in raw_values if str(item).strip())
-
-
 def _as_credit_pairs(value: Any) -> tuple[tuple[str, str], ...]:
-    pairs: list[tuple[str, str]] = []
-    for item in _as_str_tuple(value):
-        parts = [part.strip().upper() for part in item.replace("/", ":").split(":")]
-        if len(parts) != 2 or not all(parts):
-            raise ValueError(f"credit pair must use NUMERATOR:DENOMINATOR syntax: {item!r}")
-        pair = (parts[0], parts[1])
-        if pair not in pairs:
-            pairs.append(pair)
-    return tuple(pairs)
+    return _parse_credit_pairs(_as_str_tuple(value))
 
 
 def _optional_table(path: Any) -> pd.DataFrame | None:

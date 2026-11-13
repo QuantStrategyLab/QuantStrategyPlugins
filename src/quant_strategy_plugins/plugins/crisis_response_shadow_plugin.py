@@ -797,5 +797,6 @@ __all__ = [
     "SHADOW_MODE",
     "SHADOW_PROFILE",
     "build_crisis_response_shadow_signal",
+    "main",
     "write_crisis_response_shadow_outputs",
 ]

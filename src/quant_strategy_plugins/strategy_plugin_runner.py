@@ -12,27 +12,27 @@ from ._config_values import as_bool as _as_bool
 from ._config_values import as_str_tuple as _as_str_tuple
 from ._config_values import parse_credit_pairs as _parse_credit_pairs
 from .artifacts import write_json
-from .benchmark_drawdown_guard import build_benchmark_drawdown_guard_signal
-from .crisis_response_shadow_plugin import (
+from .plugins.benchmark_drawdown_guard import build_benchmark_drawdown_guard_signal
+from .plugins.crisis_response_shadow_plugin import (
     SHADOW_MODE,
     build_crisis_response_shadow_signal,
     write_crisis_response_shadow_outputs,
 )
-from .macro_risk_governor_plugin import (
+from .plugins.macro_risk_governor_plugin import (
     build_macro_risk_governor_signal,
     write_macro_risk_governor_outputs,
 )
-from .market_regime_control_plugin import (
+from .plugins.market_regime_control_plugin import (
     build_market_regime_control_signal,
     write_market_regime_control_outputs,
 )
-from .panic_reversal_shadow_plugin import (
+from .plugins.panic_reversal_shadow_plugin import (
     build_panic_reversal_shadow_signal,
     write_panic_reversal_shadow_outputs,
 )
 from .russell_1000_multi_factor_defensive_snapshot import read_table
-from .taco_panic_rebound_research import DEFAULT_EVENT_SET, resolve_trade_war_event_set
-from .taco_rebound_shadow_plugin import (
+from .plugins.taco_panic_rebound_research import DEFAULT_EVENT_SET, resolve_trade_war_event_set
+from .plugins.taco_rebound_shadow_plugin import (
     build_taco_rebound_shadow_signal,
     write_taco_rebound_shadow_outputs,
 )

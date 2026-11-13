@@ -2,3 +2,4 @@
 
 from .plugins.taco_rebound_shadow_plugin import *  # noqa: F403
 from .plugins.taco_rebound_shadow_plugin import main  # noqa: F401
+# compatibility shim for plugin relocation

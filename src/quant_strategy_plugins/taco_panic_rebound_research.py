@@ -2,3 +2,4 @@
 
 from .plugins.taco_panic_rebound_research import *  # noqa: F403
 from .plugins.taco_panic_rebound_research import main  # noqa: F401
+# compatibility shim for plugin relocation

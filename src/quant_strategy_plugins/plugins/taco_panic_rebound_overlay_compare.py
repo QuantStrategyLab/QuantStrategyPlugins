@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import pandas as pd
 
@@ -373,42 +374,137 @@ def build_dual_audit_decisions(
     return tuple(accepted), decisions
 
 
+@dataclass(frozen=True, slots=True)
+class DualDriveBaseWeightsConfig:
+    """Configuration for approximating the dual-drive base allocation weights."""
+
+    start_date: str | None = DEFAULT_START_DATE
+    end_date: str | None = None
+    benchmark_symbol: str = DEFAULT_BENCHMARK_SYMBOL
+    attack_symbol: str = DEFAULT_ATTACK_SYMBOL
+    safe_symbol: str = DEFAULT_SAFE_SYMBOL
+    cash_symbol: str = DEFAULT_CASH_SYMBOL
+    qqq_weight: float = DEFAULT_DUAL_DRIVE_QQQ_WEIGHT
+    tqqq_weight: float = DEFAULT_DUAL_DRIVE_TQQQ_WEIGHT
+    safe_weight: float = DEFAULT_DUAL_DRIVE_SAFE_WEIGHT
+    cash_weight: float = DEFAULT_DUAL_DRIVE_CASH_WEIGHT
+    idle_safe_weight: float = DEFAULT_IDLE_SAFE_WEIGHT
+    idle_cash_weight: float = DEFAULT_IDLE_CASH_WEIGHT
+    pullback_rebound_window: int = DEFAULT_PULLBACK_REBOUND_WINDOW
+    pullback_rebound_threshold_mode: str = DEFAULT_PULLBACK_REBOUND_THRESHOLD_MODE
+    pullback_rebound_threshold: float = DEFAULT_PULLBACK_REBOUND_THRESHOLD
+    pullback_rebound_volatility_multiplier: float = DEFAULT_PULLBACK_REBOUND_VOLATILITY_MULTIPLIER
+
+
+@dataclass(frozen=True, slots=True)
+class OverlayPortfolioConfig:
+    """Portfolio execution parameters shared across overlay strategy variants."""
+
+    overlay_sleeve_ratios: Sequence[float] = DEFAULT_OVERLAY_SLEEVE_RATIOS
+    attack_symbol: str = DEFAULT_ATTACK_SYMBOL
+    safe_symbol: str = DEFAULT_SAFE_SYMBOL
+    cash_symbol: str = DEFAULT_CASH_SYMBOL
+    turnover_cost_bps: float = DEFAULT_TURNOVER_COST_BPS
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyReturnBundle:
+    """Mutable output dictionaries populated by strategy return builders."""
+
+    returns_by_strategy: dict[str, pd.Series] = field(default_factory=dict)
+    weights_by_strategy: dict[str, pd.DataFrame] = field(default_factory=dict)
+    trades_by_strategy: dict[str, pd.DataFrame] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class OverlayStrategyReturnsSpec:
+    """Inputs required to record sleeve-weighted overlay strategy returns."""
+
+    scenario_prefix: str
+    taco_result: Mapping[str, object]
+    returns: pd.DataFrame
+    base_weights: pd.DataFrame
+    index: pd.DatetimeIndex
+    outputs: StrategyReturnBundle
+    portfolio: OverlayPortfolioConfig = field(default_factory=OverlayPortfolioConfig)
+
+
+def _validate_spec_argument(
+    spec: Any | None,
+    cls: type[Any],
+    legacy_kwargs: Mapping[str, Any],
+    *,
+    param_name: str = "spec",
+) -> Any | None:
+    if spec is None:
+        return None
+    if not isinstance(spec, cls):
+        raise TypeError(f"{param_name} must be a {cls.__name__} instance")
+    if legacy_kwargs:
+        raise TypeError(f"Cannot combine {param_name!r} with legacy keyword arguments")
+    return spec
+
+
+def _pop_required_kwarg(kwargs: dict[str, Any], name: str, func_name: str) -> Any:
+    if name not in kwargs:
+        raise TypeError(f"{func_name}() missing required keyword argument: {name!r}")
+    return kwargs.pop(name)
+
+
+def _extract_dataclass_kwargs(kwargs: dict[str, Any], cls: type[Any]) -> dict[str, Any]:
+    field_names = {item.name for item in fields(cls)}
+    return {name: kwargs.pop(name) for name in list(kwargs) if name in field_names}
+
+
+def _extract_bundle_and_portfolio(
+    kwargs: dict[str, Any],
+    *,
+    func_name: str,
+) -> tuple[StrategyReturnBundle, OverlayPortfolioConfig]:
+    outputs = StrategyReturnBundle(
+        returns_by_strategy=_pop_required_kwarg(kwargs, "returns_by_strategy", func_name),
+        weights_by_strategy=_pop_required_kwarg(kwargs, "weights_by_strategy", func_name),
+        trades_by_strategy=_pop_required_kwarg(kwargs, "trades_by_strategy", func_name),
+    )
+    portfolio = OverlayPortfolioConfig(
+        overlay_sleeve_ratios=_pop_required_kwarg(kwargs, "overlay_sleeve_ratios", func_name),
+        attack_symbol=_pop_required_kwarg(kwargs, "attack_symbol", func_name),
+        safe_symbol=_pop_required_kwarg(kwargs, "safe_symbol", func_name),
+        cash_symbol=_pop_required_kwarg(kwargs, "cash_symbol", func_name),
+        turnover_cost_bps=_pop_required_kwarg(kwargs, "turnover_cost_bps", func_name),
+    )
+    return outputs, portfolio
+
+
 def build_tqqq_growth_income_base_weights(
     close: pd.DataFrame,
-    *,
-    start_date: str | None = DEFAULT_START_DATE,
-    end_date: str | None = None,
-    benchmark_symbol: str = DEFAULT_BENCHMARK_SYMBOL,
-    attack_symbol: str = DEFAULT_ATTACK_SYMBOL,
-    safe_symbol: str = DEFAULT_SAFE_SYMBOL,
-    cash_symbol: str = DEFAULT_CASH_SYMBOL,
-    qqq_weight: float = DEFAULT_DUAL_DRIVE_QQQ_WEIGHT,
-    tqqq_weight: float = DEFAULT_DUAL_DRIVE_TQQQ_WEIGHT,
-    safe_weight: float = DEFAULT_DUAL_DRIVE_SAFE_WEIGHT,
-    cash_weight: float = DEFAULT_DUAL_DRIVE_CASH_WEIGHT,
-    idle_safe_weight: float = DEFAULT_IDLE_SAFE_WEIGHT,
-    idle_cash_weight: float = DEFAULT_IDLE_CASH_WEIGHT,
-    pullback_rebound_window: int = DEFAULT_PULLBACK_REBOUND_WINDOW,
-    pullback_rebound_threshold_mode: str = DEFAULT_PULLBACK_REBOUND_THRESHOLD_MODE,
-    pullback_rebound_threshold: float = DEFAULT_PULLBACK_REBOUND_THRESHOLD,
-    pullback_rebound_volatility_multiplier: float = DEFAULT_PULLBACK_REBOUND_VOLATILITY_MULTIPLIER,
+    config: DualDriveBaseWeightsConfig | None = None,
+    **legacy_kwargs: Any,
 ) -> pd.DataFrame:
     """Approximate the current fixed dual-drive runtime profile for research comparison."""
+    validated = _validate_spec_argument(
+        config,
+        DualDriveBaseWeightsConfig,
+        legacy_kwargs,
+        param_name="config",
+    )
+    cfg = validated if validated is not None else DualDriveBaseWeightsConfig(**legacy_kwargs)
+
     frame = _normalize_close(close)
-    benchmark_symbol = str(benchmark_symbol).strip().upper()
-    attack_symbol = str(attack_symbol).strip().upper()
-    safe_symbol = str(safe_symbol).strip().upper()
-    cash_symbol = str(cash_symbol).strip().upper() or DEFAULT_CASH_SYMBOL
+    benchmark_symbol = str(cfg.benchmark_symbol).strip().upper()
+    attack_symbol = str(cfg.attack_symbol).strip().upper()
+    safe_symbol = str(cfg.safe_symbol).strip().upper()
+    cash_symbol = str(cfg.cash_symbol).strip().upper() or DEFAULT_CASH_SYMBOL
     if benchmark_symbol not in frame.columns:
         raise ValueError(f"benchmark symbol {benchmark_symbol!r} missing from price history")
     if attack_symbol not in frame.columns:
         raise ValueError(f"attack symbol {attack_symbol!r} missing from price history")
 
     output_index = frame.index
-    if start_date is not None:
-        output_index = output_index[output_index >= pd.Timestamp(start_date).normalize()]
-    if end_date is not None:
-        output_index = output_index[output_index <= pd.Timestamp(end_date).normalize()]
+    if cfg.start_date is not None:
+        output_index = output_index[output_index >= pd.Timestamp(cfg.start_date).normalize()]
+    if cfg.end_date is not None:
+        output_index = output_index[output_index <= pd.Timestamp(cfg.end_date).normalize()]
     if len(output_index) < 2:
         raise RuntimeError("Not enough trading days for baseline comparison")
 
@@ -416,33 +512,33 @@ def build_tqqq_growth_income_base_weights(
     ma200 = benchmark.rolling(200, min_periods=200).mean()
     ma20 = benchmark.rolling(20, min_periods=20).mean()
     ma20_slope = ma20.diff()
-    pullback_rebound_window = max(1, int(pullback_rebound_window or DEFAULT_PULLBACK_REBOUND_WINDOW))
+    pullback_rebound_window = max(1, int(cfg.pullback_rebound_window or DEFAULT_PULLBACK_REBOUND_WINDOW))
     pullback_rebound = benchmark / benchmark.rolling(pullback_rebound_window, min_periods=pullback_rebound_window).min() - 1.0
-    threshold_mode = str(pullback_rebound_threshold_mode or PULLBACK_REBOUND_THRESHOLD_MODE_FIXED).strip().lower()
+    threshold_mode = str(cfg.pullback_rebound_threshold_mode or PULLBACK_REBOUND_THRESHOLD_MODE_FIXED).strip().lower()
     if threshold_mode not in PULLBACK_REBOUND_THRESHOLD_MODES:
         modes = ", ".join(sorted(PULLBACK_REBOUND_THRESHOLD_MODES))
         raise ValueError(f"Unsupported pullback rebound threshold mode: {threshold_mode!r}; expected one of {modes}")
-    fixed_threshold = max(0.0, float(pullback_rebound_threshold or 0.0))
+    fixed_threshold = max(0.0, float(cfg.pullback_rebound_threshold or 0.0))
     if threshold_mode == PULLBACK_REBOUND_THRESHOLD_MODE_VOLATILITY_SCALED:
         returns = benchmark.pct_change(fill_method=None)
         pullback_rebound_thresholds = (
             returns.rolling(pullback_rebound_window, min_periods=pullback_rebound_window).std()
-            * max(0.0, float(pullback_rebound_volatility_multiplier or 0.0))
+            * max(0.0, float(cfg.pullback_rebound_volatility_multiplier or 0.0))
         ).fillna(fixed_threshold)
     else:
         pullback_rebound_thresholds = pd.Series(fixed_threshold, index=benchmark.index)
 
     active_weights = {
-        benchmark_symbol: float(qqq_weight),
-        attack_symbol: float(tqqq_weight),
-        safe_symbol: float(safe_weight),
-        cash_symbol: float(cash_weight),
+        benchmark_symbol: float(cfg.qqq_weight),
+        attack_symbol: float(cfg.tqqq_weight),
+        safe_symbol: float(cfg.safe_weight),
+        cash_symbol: float(cfg.cash_weight),
     }
     idle_weights = {
         benchmark_symbol: 0.0,
         attack_symbol: 0.0,
-        safe_symbol: float(idle_safe_weight),
-        cash_symbol: float(idle_cash_weight),
+        safe_symbol: float(cfg.idle_safe_weight),
+        cash_symbol: float(cfg.idle_cash_weight),
     }
     risk_active = False
     rows: list[dict[str, object]] = []
@@ -855,22 +951,13 @@ def _run_taco_overlay_backtest(
     )
 
 
-def _add_overlay_strategy_returns(
-    *,
-    scenario_prefix: str,
+def _prepare_overlay_weights(
     taco_result: Mapping[str, object],
-    returns: pd.DataFrame,
-    base_weights: pd.DataFrame,
-    returns_by_strategy: dict[str, pd.Series],
-    weights_by_strategy: dict[str, pd.DataFrame],
-    trades_by_strategy: dict[str, pd.DataFrame],
     index: pd.DatetimeIndex,
-    overlay_sleeve_ratios: Sequence[float],
+    *,
     attack_symbol: str,
-    safe_symbol: str,
     cash_symbol: str,
-    turnover_cost_bps: float,
-) -> None:
+) -> pd.DataFrame:
     overlay_weights = taco_result["weights_history"].copy()
     if not isinstance(overlay_weights, pd.DataFrame):
         raise TypeError("taco_result['weights_history'] must be a DataFrame")
@@ -880,38 +967,94 @@ def _add_overlay_strategy_returns(
         overlay_weights[attack_symbol] = 0.0
     if cash_symbol not in overlay_weights.columns:
         overlay_weights[cash_symbol] = 1.0 - overlay_weights[attack_symbol]
+    return overlay_weights
 
-    for sleeve_ratio in overlay_sleeve_ratios:
+
+def _record_sleeve_strategy_returns(
+    *,
+    scenario_prefix: str,
+    taco_result: Mapping[str, object],
+    returns: pd.DataFrame,
+    index: pd.DatetimeIndex,
+    outputs: StrategyReturnBundle,
+    portfolio: OverlayPortfolioConfig,
+    resolve_row_weights: Callable[[pd.Timestamp, float], Mapping[str, float]],
+) -> None:
+    for sleeve_ratio in portfolio.overlay_sleeve_ratios:
         strategy_name = f"{scenario_prefix}_{int(float(sleeve_ratio) * 100)}pct"
-        rows = []
-        for date in index[:-1]:
-            rows.append(
-                {
-                    "as_of": date,
-                    **_integrate_overlay_weights(
-                        base_weights.loc[date].to_dict(),
-                        overlay_weights.loc[date].to_dict(),
-                        sleeve_ratio=float(sleeve_ratio),
-                        attack_symbol=attack_symbol,
-                        safe_symbol=safe_symbol,
-                        cash_symbol=cash_symbol,
-                    ),
-                }
-            )
+        rows = [
+            {"as_of": date, **resolve_row_weights(date, float(sleeve_ratio))}
+            for date in index[:-1]
+        ]
         combined_weights = pd.DataFrame(rows).set_index("as_of").reindex(index[:-1]).fillna(0.0)
         strategy_returns, strategy_weights = _weights_to_returns(
             returns,
             combined_weights,
             strategy_name=strategy_name,
-            safe_symbol=safe_symbol,
-            cash_symbol=cash_symbol,
-            turnover_cost_bps=turnover_cost_bps,
+            safe_symbol=portfolio.safe_symbol,
+            cash_symbol=portfolio.cash_symbol,
+            turnover_cost_bps=portfolio.turnover_cost_bps,
         )
-        returns_by_strategy[strategy_name] = strategy_returns
-        weights_by_strategy[strategy_name] = strategy_weights
+        outputs.returns_by_strategy[strategy_name] = strategy_returns
+        outputs.weights_by_strategy[strategy_name] = strategy_weights
         trades = taco_result.get("trades")
         if isinstance(trades, pd.DataFrame):
-            trades_by_strategy[strategy_name] = trades
+            outputs.trades_by_strategy[strategy_name] = trades
+
+
+def _resolve_overlay_strategy_returns_spec(
+    spec: OverlayStrategyReturnsSpec | None,
+    legacy_kwargs: dict[str, Any],
+) -> OverlayStrategyReturnsSpec:
+    validated = _validate_spec_argument(spec, OverlayStrategyReturnsSpec, legacy_kwargs)
+    if validated is not None:
+        return validated
+    kwargs = dict(legacy_kwargs)
+    func_name = "_add_overlay_strategy_returns"
+    outputs, portfolio = _extract_bundle_and_portfolio(kwargs, func_name=func_name)
+    resolved = OverlayStrategyReturnsSpec(
+        scenario_prefix=_pop_required_kwarg(kwargs, "scenario_prefix", func_name),
+        taco_result=_pop_required_kwarg(kwargs, "taco_result", func_name),
+        returns=_pop_required_kwarg(kwargs, "returns", func_name),
+        base_weights=_pop_required_kwarg(kwargs, "base_weights", func_name),
+        index=_pop_required_kwarg(kwargs, "index", func_name),
+        outputs=outputs,
+        portfolio=portfolio,
+    )
+    if kwargs:
+        unexpected = next(iter(kwargs))
+        raise TypeError(f"{func_name}() got an unexpected keyword argument {unexpected!r}")
+    return resolved
+
+
+def _add_overlay_strategy_returns(
+    spec: OverlayStrategyReturnsSpec | None = None,
+    **legacy_kwargs: Any,
+) -> None:
+    resolved = _resolve_overlay_strategy_returns_spec(spec, legacy_kwargs)
+    portfolio = resolved.portfolio
+    overlay_weights = _prepare_overlay_weights(
+        resolved.taco_result,
+        resolved.index,
+        attack_symbol=portfolio.attack_symbol,
+        cash_symbol=portfolio.cash_symbol,
+    )
+    _record_sleeve_strategy_returns(
+        scenario_prefix=resolved.scenario_prefix,
+        taco_result=resolved.taco_result,
+        returns=resolved.returns,
+        index=resolved.index,
+        outputs=resolved.outputs,
+        portfolio=portfolio,
+        resolve_row_weights=lambda date, sleeve_ratio: _integrate_overlay_weights(
+            resolved.base_weights.loc[date].to_dict(),
+            overlay_weights.loc[date].to_dict(),
+            sleeve_ratio=sleeve_ratio,
+            attack_symbol=portfolio.attack_symbol,
+            safe_symbol=portfolio.safe_symbol,
+            cash_symbol=portfolio.cash_symbol,
+        ),
+    )
 
 
 def run_overlay_comparison(
@@ -982,12 +1125,14 @@ def run_overlay_comparison(
 
     base_weights = build_tqqq_growth_income_base_weights(
         close,
-        start_date=start_date,
-        end_date=end_date,
-        benchmark_symbol=benchmark_symbol,
-        attack_symbol=attack_symbol,
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
+        DualDriveBaseWeightsConfig(
+            start_date=start_date,
+            end_date=end_date,
+            benchmark_symbol=benchmark_symbol,
+            attack_symbol=attack_symbol,
+            safe_symbol=safe_symbol,
+            cash_symbol=cash_symbol,
+        ),
     ).reindex(index[:-1]).ffill().fillna(0.0)
     base_returns, base_weights_history = _weights_to_returns(
         returns,
@@ -1005,20 +1150,28 @@ def run_overlay_comparison(
     returns_by_strategy: dict[str, pd.Series] = {"base": base_returns}
     weights_by_strategy: dict[str, pd.DataFrame] = {"base": base_weights_history}
     trades_by_strategy: dict[str, pd.DataFrame] = {}
-    _add_overlay_strategy_returns(
-        scenario_prefix="price_stress_taco",
-        taco_result=taco_result,
-        returns=returns,
-        base_weights=base_weights,
+    outputs = StrategyReturnBundle(
         returns_by_strategy=returns_by_strategy,
         weights_by_strategy=weights_by_strategy,
         trades_by_strategy=trades_by_strategy,
-        index=index,
+    )
+    portfolio = OverlayPortfolioConfig(
         overlay_sleeve_ratios=overlay_sleeve_ratios,
         attack_symbol=attack_symbol,
         safe_symbol=safe_symbol,
         cash_symbol=cash_symbol,
         turnover_cost_bps=turnover_cost_bps,
+    )
+    _add_overlay_strategy_returns(
+        OverlayStrategyReturnsSpec(
+            scenario_prefix="price_stress_taco",
+            taco_result=taco_result,
+            returns=returns,
+            base_weights=base_weights,
+            index=index,
+            outputs=outputs,
+            portfolio=portfolio,
+        )
     )
 
     crisis_signal = pd.Series(dtype=bool, name="price_crisis_guard_active")
@@ -1050,19 +1203,15 @@ def run_overlay_comparison(
         returns_by_strategy["price_crisis_guard_base"] = crisis_base_returns
         weights_by_strategy["price_crisis_guard_base"] = crisis_base_weights_history
         _add_overlay_strategy_returns(
-            scenario_prefix="price_crisis_guard_taco",
-            taco_result=taco_result,
-            returns=returns,
-            base_weights=crisis_base_weights,
-            returns_by_strategy=returns_by_strategy,
-            weights_by_strategy=weights_by_strategy,
-            trades_by_strategy=trades_by_strategy,
-            index=index,
-            overlay_sleeve_ratios=overlay_sleeve_ratios,
-            attack_symbol=attack_symbol,
-            safe_symbol=safe_symbol,
-            cash_symbol=cash_symbol,
-            turnover_cost_bps=turnover_cost_bps,
+            OverlayStrategyReturnsSpec(
+                scenario_prefix="price_crisis_guard_taco",
+                taco_result=taco_result,
+                returns=returns,
+                base_weights=crisis_base_weights,
+                index=index,
+                outputs=outputs,
+                portfolio=portfolio,
+            )
         )
 
     audit_decisions_by_mode: list[pd.DataFrame] = []
@@ -1096,19 +1245,15 @@ def run_overlay_comparison(
         )
         scenario_prefix = f"dual_audit_{audit_mode}_taco"
         _add_overlay_strategy_returns(
-            scenario_prefix=scenario_prefix,
-            taco_result=audit_result,
-            returns=returns,
-            base_weights=base_weights,
-            returns_by_strategy=returns_by_strategy,
-            weights_by_strategy=weights_by_strategy,
-            trades_by_strategy=trades_by_strategy,
-            index=index,
-            overlay_sleeve_ratios=overlay_sleeve_ratios,
-            attack_symbol=attack_symbol,
-            safe_symbol=safe_symbol,
-            cash_symbol=cash_symbol,
-            turnover_cost_bps=turnover_cost_bps,
+            OverlayStrategyReturnsSpec(
+                scenario_prefix=scenario_prefix,
+                taco_result=audit_result,
+                returns=returns,
+                base_weights=base_weights,
+                index=index,
+                outputs=outputs,
+                portfolio=portfolio,
+            )
         )
         taco_trades_by_scenario.append(audit_result["trades"].assign(scenario=scenario_prefix))
         taco_summaries_by_scenario.append(audit_result["summary"].assign(scenario=scenario_prefix))
@@ -1344,6 +1489,10 @@ __all__ = [
     "DEFAULT_OVERLAY_SLEEVE_RATIOS",
     "DEFAULT_PRICE_CRISIS_GUARD_DRAWDOWN",
     "DEFAULT_PRICE_CRISIS_GUARD_RISK_MULTIPLIER",
+    "DualDriveBaseWeightsConfig",
+    "OverlayPortfolioConfig",
+    "OverlayStrategyReturnsSpec",
+    "StrategyReturnBundle",
     "add_synthetic_attack_close",
     "apply_price_crisis_guard_to_weights",
     "build_audit_diagnostics",

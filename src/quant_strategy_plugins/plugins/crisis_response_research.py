@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
@@ -23,6 +24,10 @@ from .taco_panic_rebound_overlay_compare import (
     DEFAULT_PRICE_CRISIS_GUARD_MA_DAYS,
     DEFAULT_PRICE_CRISIS_GUARD_MA_SLOPE_DAYS,
     DEFAULT_SYNTHETIC_ATTACK_EXPENSE_RATE,
+    DualDriveBaseWeightsConfig,
+    OverlayPortfolioConfig,
+    OverlayStrategyReturnsSpec,
+    StrategyReturnBundle,
     add_synthetic_attack_close,
     apply_price_crisis_guard_to_weights,
     build_crisis_guard_diagnostics,
@@ -35,11 +40,17 @@ from .taco_panic_rebound_overlay_compare import (
     close_matrix_to_price_history,
     filter_events_by_price_stress,
     _add_overlay_strategy_returns,
+    _extract_bundle_and_portfolio,
+    _extract_dataclass_kwargs,
     _format_percent_columns,
     _integrate_overlay_weights,
     _next_index_date,
     _parse_float_tuple,
+    _pop_required_kwarg,
+    _prepare_overlay_weights,
+    _record_sleeve_strategy_returns,
     _run_taco_overlay_backtest,
+    _validate_spec_argument,
     _weights_to_returns,
 )
 from .taco_panic_rebound_research import (
@@ -671,57 +682,106 @@ def build_route_audit_effectiveness_reports(
     return reports
 
 
+@dataclass(frozen=True, slots=True)
+class ExternalValuationThresholds:
+    """Thresholds for external valuation, breadth, and earnings quality context flags."""
+
+    external_trailing_pe_threshold: float = DEFAULT_EXTERNAL_TRAILING_PE_THRESHOLD
+    external_forward_pe_threshold: float = DEFAULT_EXTERNAL_FORWARD_PE_THRESHOLD
+    external_cape_threshold: float = DEFAULT_EXTERNAL_CAPE_THRESHOLD
+    external_unprofitable_growth_threshold: float = DEFAULT_EXTERNAL_UNPROFITABLE_GROWTH_THRESHOLD
+    external_pct_above_200d_threshold: float = DEFAULT_EXTERNAL_PCT_ABOVE_200D_THRESHOLD
+    external_pct_above_50d_threshold: float = DEFAULT_EXTERNAL_PCT_ABOVE_50D_THRESHOLD
+    external_new_high_new_low_spread_threshold: float = DEFAULT_EXTERNAL_NEW_HIGH_NEW_LOW_SPREAD_THRESHOLD
+    external_advance_decline_drawdown_threshold: float = DEFAULT_EXTERNAL_ADVANCE_DECLINE_DRAWDOWN_THRESHOLD
+    external_negative_earnings_share_threshold: float = DEFAULT_EXTERNAL_NEGATIVE_EARNINGS_SHARE_THRESHOLD
+    external_earnings_revision_3m_threshold: float = DEFAULT_EXTERNAL_EARNINGS_REVISION_3M_THRESHOLD
+    external_margin_revision_3m_threshold: float = DEFAULT_EXTERNAL_MARGIN_REVISION_3M_THRESHOLD
+
+
+@dataclass(frozen=True, slots=True)
+class V2ContextOpinionsSpec:
+    """Inputs and thresholds for building V2 context-pack crisis opinions."""
+
+    events: Sequence[TradeWarEvent] = TRADE_WAR_EVENTS_2018_TO_PRESENT
+    external_context: pd.DataFrame | None = None
+    start_date: str = DEFAULT_START_DATE
+    end_date: str | None = None
+    benchmark_symbol: str = DEFAULT_BENCHMARK_SYMBOL
+    market_symbol: str = DEFAULT_MARKET_SYMBOL
+    financial_symbols: Sequence[str] = DEFAULT_CONTEXT_FINANCIAL_SYMBOLS
+    credit_pairs: Sequence[tuple[str, str]] = DEFAULT_CONTEXT_CREDIT_PAIRS
+    rate_symbols: Sequence[str] = DEFAULT_CONTEXT_RATE_SYMBOLS
+    external_valuation_mode: str = EXTERNAL_VALUATION_MODE_OFF
+    external_thresholds: ExternalValuationThresholds = field(default_factory=ExternalValuationThresholds)
+
+
+@dataclass(frozen=True, slots=True)
+class UnifiedResponseReturnsSpec:
+    """Inputs required to record unified crisis-response strategy returns."""
+
+    scenario_prefix: str
+    taco_result: Mapping[str, object]
+    returns: pd.DataFrame
+    base_weights: pd.DataFrame
+    crisis_weights: pd.DataFrame
+    crisis_signal: pd.Series
+    index: pd.DatetimeIndex
+    outputs: StrategyReturnBundle
+    portfolio: OverlayPortfolioConfig = field(default_factory=OverlayPortfolioConfig)
+    fragility_weights: pd.DataFrame | None = None
+    fragility_signal: pd.Series | None = None
+
+
+def _resolve_v2_context_opinions_spec(
+    spec: V2ContextOpinionsSpec | None,
+    legacy_kwargs: dict[str, Any],
+) -> V2ContextOpinionsSpec:
+    validated = _validate_spec_argument(spec, V2ContextOpinionsSpec, legacy_kwargs)
+    if validated is not None:
+        return validated
+    kwargs = dict(legacy_kwargs)
+    threshold_kwargs = _extract_dataclass_kwargs(kwargs, ExternalValuationThresholds)
+    if threshold_kwargs:
+        if "external_thresholds" in kwargs:
+            raise TypeError("Cannot combine 'external_thresholds' with individual threshold arguments")
+        kwargs["external_thresholds"] = ExternalValuationThresholds(**threshold_kwargs)
+    return V2ContextOpinionsSpec(**kwargs)
+
+
 def _build_v2_context_opinions(
     close: pd.DataFrame,
     price_signal: pd.Series,
-    *,
-    events: Sequence[TradeWarEvent],
-    external_context: pd.DataFrame | None,
-    start_date: str,
-    end_date: str | None,
-    benchmark_symbol: str,
-    market_symbol: str,
-    financial_symbols: Sequence[str],
-    credit_pairs: Sequence[tuple[str, str]],
-    rate_symbols: Sequence[str],
-    external_valuation_mode: str,
-    external_trailing_pe_threshold: float,
-    external_forward_pe_threshold: float,
-    external_cape_threshold: float,
-    external_unprofitable_growth_threshold: float,
-    external_pct_above_200d_threshold: float,
-    external_pct_above_50d_threshold: float,
-    external_new_high_new_low_spread_threshold: float,
-    external_advance_decline_drawdown_threshold: float,
-    external_negative_earnings_share_threshold: float,
-    external_earnings_revision_3m_threshold: float,
-    external_margin_revision_3m_threshold: float,
+    spec: V2ContextOpinionsSpec | None = None,
+    **legacy_kwargs: Any,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     from .crisis_context_research import build_crisis_context_features
 
+    resolved = _resolve_v2_context_opinions_spec(spec, legacy_kwargs)
+    thresholds = resolved.external_thresholds
     context_features = build_crisis_context_features(
         close,
-        events=events,
-        external_context=external_context,
-        start_date=start_date,
-        end_date=end_date,
-        benchmark_symbol=benchmark_symbol,
-        market_symbol=market_symbol,
-        financial_symbols=financial_symbols,
-        credit_pairs=credit_pairs,
-        rate_symbols=rate_symbols,
-        external_valuation_mode=external_valuation_mode,
-        external_trailing_pe_threshold=float(external_trailing_pe_threshold),
-        external_forward_pe_threshold=float(external_forward_pe_threshold),
-        external_cape_threshold=float(external_cape_threshold),
-        external_unprofitable_growth_threshold=float(external_unprofitable_growth_threshold),
-        external_pct_above_200d_threshold=float(external_pct_above_200d_threshold),
-        external_pct_above_50d_threshold=float(external_pct_above_50d_threshold),
-        external_new_high_new_low_spread_threshold=float(external_new_high_new_low_spread_threshold),
-        external_advance_decline_drawdown_threshold=float(external_advance_decline_drawdown_threshold),
-        external_negative_earnings_share_threshold=float(external_negative_earnings_share_threshold),
-        external_earnings_revision_3m_threshold=float(external_earnings_revision_3m_threshold),
-        external_margin_revision_3m_threshold=float(external_margin_revision_3m_threshold),
+        events=resolved.events,
+        external_context=resolved.external_context,
+        start_date=resolved.start_date,
+        end_date=resolved.end_date,
+        benchmark_symbol=resolved.benchmark_symbol,
+        market_symbol=resolved.market_symbol,
+        financial_symbols=resolved.financial_symbols,
+        credit_pairs=resolved.credit_pairs,
+        rate_symbols=resolved.rate_symbols,
+        external_valuation_mode=resolved.external_valuation_mode,
+        external_trailing_pe_threshold=float(thresholds.external_trailing_pe_threshold),
+        external_forward_pe_threshold=float(thresholds.external_forward_pe_threshold),
+        external_cape_threshold=float(thresholds.external_cape_threshold),
+        external_unprofitable_growth_threshold=float(thresholds.external_unprofitable_growth_threshold),
+        external_pct_above_200d_threshold=float(thresholds.external_pct_above_200d_threshold),
+        external_pct_above_50d_threshold=float(thresholds.external_pct_above_50d_threshold),
+        external_new_high_new_low_spread_threshold=float(thresholds.external_new_high_new_low_spread_threshold),
+        external_advance_decline_drawdown_threshold=float(thresholds.external_advance_decline_drawdown_threshold),
+        external_negative_earnings_share_threshold=float(thresholds.external_negative_earnings_share_threshold),
+        external_earnings_revision_3m_threshold=float(thresholds.external_earnings_revision_3m_threshold),
+        external_margin_revision_3m_threshold=float(thresholds.external_margin_revision_3m_threshold),
     )
     columns = [
         "strategy",
@@ -910,81 +970,509 @@ def _filter_taco_events_from_decisions(
     return tuple(event for event in recognized_events if event.event_id in approved_ids)
 
 
-def _add_unified_response_returns(
-    *,
-    scenario_prefix: str,
-    taco_result: Mapping[str, object],
-    returns: pd.DataFrame,
-    base_weights: pd.DataFrame,
-    crisis_weights: pd.DataFrame,
-    crisis_signal: pd.Series,
-    fragility_weights: pd.DataFrame | None = None,
-    fragility_signal: pd.Series | None = None,
-    returns_by_strategy: dict[str, pd.Series],
-    weights_by_strategy: dict[str, pd.DataFrame],
-    trades_by_strategy: dict[str, pd.DataFrame],
+def _resolve_unified_response_returns_spec(
+    spec: UnifiedResponseReturnsSpec | None,
+    legacy_kwargs: dict[str, Any],
+) -> UnifiedResponseReturnsSpec:
+    validated = _validate_spec_argument(spec, UnifiedResponseReturnsSpec, legacy_kwargs)
+    if validated is not None:
+        return validated
+    kwargs = dict(legacy_kwargs)
+    func_name = "_add_unified_response_returns"
+    outputs, portfolio = _extract_bundle_and_portfolio(kwargs, func_name=func_name)
+    resolved = UnifiedResponseReturnsSpec(
+        scenario_prefix=_pop_required_kwarg(kwargs, "scenario_prefix", func_name),
+        taco_result=_pop_required_kwarg(kwargs, "taco_result", func_name),
+        returns=_pop_required_kwarg(kwargs, "returns", func_name),
+        base_weights=_pop_required_kwarg(kwargs, "base_weights", func_name),
+        crisis_weights=_pop_required_kwarg(kwargs, "crisis_weights", func_name),
+        crisis_signal=_pop_required_kwarg(kwargs, "crisis_signal", func_name),
+        index=_pop_required_kwarg(kwargs, "index", func_name),
+        outputs=outputs,
+        portfolio=portfolio,
+        fragility_weights=kwargs.pop("fragility_weights", None),
+        fragility_signal=kwargs.pop("fragility_signal", None),
+    )
+    if kwargs:
+        unexpected = next(iter(kwargs))
+        raise TypeError(f"{func_name}() got an unexpected keyword argument {unexpected!r}")
+    return resolved
+
+
+def _normalize_optional_signal(
+    signal: pd.Series,
     index: pd.DatetimeIndex,
-    overlay_sleeve_ratios: Sequence[float],
-    attack_symbol: str,
-    safe_symbol: str,
-    cash_symbol: str,
-    turnover_cost_bps: float,
+) -> pd.Series:
+    normalized = pd.Series(signal).fillna(False).astype(bool).copy()
+    normalized.index = pd.to_datetime(normalized.index).tz_localize(None).normalize()
+    return normalized.reindex(index[:-1]).ffill().fillna(False)
+
+
+def _add_unified_response_returns(
+    spec: UnifiedResponseReturnsSpec | None = None,
+    **legacy_kwargs: Any,
 ) -> None:
-    overlay_weights = taco_result["weights_history"].copy()
-    if not isinstance(overlay_weights, pd.DataFrame):
-        raise TypeError("taco_result['weights_history'] must be a DataFrame")
-    overlay_weights.index = pd.to_datetime(overlay_weights.index).tz_localize(None).normalize()
-    overlay_weights = overlay_weights.reindex(index[:-1]).ffill().fillna({cash_symbol: 1.0}).fillna(0.0)
-    if attack_symbol not in overlay_weights.columns:
-        overlay_weights[attack_symbol] = 0.0
-    if cash_symbol not in overlay_weights.columns:
-        overlay_weights[cash_symbol] = 1.0 - overlay_weights[attack_symbol]
-
-    crisis = pd.Series(crisis_signal).fillna(False).astype(bool).copy()
-    crisis.index = pd.to_datetime(crisis.index).tz_localize(None).normalize()
-    crisis = crisis.reindex(index[:-1]).ffill().fillna(False)
-
-    if fragility_signal is None or fragility_weights is None:
-        fragility = pd.Series(False, index=index[:-1], name="bubble_fragility")
-        fragility_weights = base_weights
+    resolved = _resolve_unified_response_returns_spec(spec, legacy_kwargs)
+    portfolio = resolved.portfolio
+    overlay_weights = _prepare_overlay_weights(
+        resolved.taco_result,
+        resolved.index,
+        attack_symbol=portfolio.attack_symbol,
+        cash_symbol=portfolio.cash_symbol,
+    )
+    crisis = _normalize_optional_signal(resolved.crisis_signal, resolved.index)
+    if resolved.fragility_signal is None or resolved.fragility_weights is None:
+        fragility = pd.Series(False, index=resolved.index[:-1], name="bubble_fragility")
+        fragility_weights = resolved.base_weights
     else:
-        fragility = pd.Series(fragility_signal).fillna(False).astype(bool).copy()
-        fragility.index = pd.to_datetime(fragility.index).tz_localize(None).normalize()
-        fragility = fragility.reindex(index[:-1]).ffill().fillna(False)
-        fragility_weights = fragility_weights.reindex(index[:-1]).ffill().fillna(0.0)
+        fragility = _normalize_optional_signal(resolved.fragility_signal, resolved.index)
+        fragility_weights = resolved.fragility_weights.reindex(resolved.index[:-1]).ffill().fillna(0.0)
 
-    for sleeve_ratio in overlay_sleeve_ratios:
-        strategy_name = f"{scenario_prefix}_{int(float(sleeve_ratio) * 100)}pct"
-        rows: list[dict[str, object]] = []
-        for date in index[:-1]:
-            if bool(crisis.loc[date]):
-                weights = crisis_weights.loc[date].to_dict()
-            elif bool(fragility.loc[date]):
-                weights = fragility_weights.loc[date].to_dict()
-            else:
-                weights = _integrate_overlay_weights(
-                    base_weights.loc[date].to_dict(),
-                    overlay_weights.loc[date].to_dict(),
-                    sleeve_ratio=float(sleeve_ratio),
-                    attack_symbol=attack_symbol,
-                    safe_symbol=safe_symbol,
-                    cash_symbol=cash_symbol,
-                )
-            rows.append({"as_of": date, **weights})
-        combined_weights = pd.DataFrame(rows).set_index("as_of").reindex(index[:-1]).fillna(0.0)
-        strategy_returns, strategy_weights = _weights_to_returns(
-            returns,
-            combined_weights,
-            strategy_name=strategy_name,
-            safe_symbol=safe_symbol,
-            cash_symbol=cash_symbol,
-            turnover_cost_bps=turnover_cost_bps,
+    def resolve_row_weights(date: pd.Timestamp, sleeve_ratio: float) -> Mapping[str, float]:
+        if bool(crisis.loc[date]):
+            return resolved.crisis_weights.loc[date].to_dict()
+        if bool(fragility.loc[date]):
+            return fragility_weights.loc[date].to_dict()
+        return _integrate_overlay_weights(
+            resolved.base_weights.loc[date].to_dict(),
+            overlay_weights.loc[date].to_dict(),
+            sleeve_ratio=sleeve_ratio,
+            attack_symbol=portfolio.attack_symbol,
+            safe_symbol=portfolio.safe_symbol,
+            cash_symbol=portfolio.cash_symbol,
         )
-        returns_by_strategy[strategy_name] = strategy_returns
-        weights_by_strategy[strategy_name] = strategy_weights
-        trades = taco_result.get("trades")
-        if isinstance(trades, pd.DataFrame):
-            trades_by_strategy[strategy_name] = trades
+
+    _record_sleeve_strategy_returns(
+        scenario_prefix=resolved.scenario_prefix,
+        taco_result=resolved.taco_result,
+        returns=resolved.returns,
+        index=resolved.index,
+        outputs=resolved.outputs,
+        portfolio=portfolio,
+        resolve_row_weights=resolve_row_weights,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _ResearchMarketSpec:
+    start_date: str
+    end_date: str | None
+    benchmark_symbol: str
+    attack_symbol: str
+    safe_symbol: str
+    cash_symbol: str
+    synthetic_attack_from: str | None
+    synthetic_attack_multiple: float
+    synthetic_attack_expense_rate: float
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedResearchMarket:
+    close: pd.DataFrame
+    index: pd.DatetimeIndex
+    comparison_price_history: pd.DataFrame
+    benchmark_symbol: str
+    attack_symbol: str
+    safe_symbol: str
+    cash_symbol: str
+
+
+@dataclass(frozen=True, slots=True)
+class _CrisisSignalsSpec:
+    events: Sequence[TradeWarEvent]
+    start_date: str
+    end_date: str | None
+    crisis_drawdown: float
+    ma_days: int
+    ma_slope_days: int
+    crisis_confirm_days: int
+    financial_symbol: str
+    market_symbol: str
+    crisis_context_mode: str
+    severe_crisis_risk_multiplier: float | None
+    severe_crisis_context: str
+    bubble_fragility_risk_multiplier: float | None
+    bubble_fragility_context: str
+    bubble_fragility_drawdown: float
+    bubble_fragility_ma_days: int
+    bubble_fragility_ma_slope_days: int
+    bubble_fragility_confirm_days: int
+    external_context: pd.DataFrame | None
+    context_financial_symbols: Sequence[str]
+    context_credit_pairs: Sequence[tuple[str, str]]
+    context_rate_symbols: Sequence[str]
+    external_valuation_mode: str
+    external_thresholds: ExternalValuationThresholds
+
+
+@dataclass(frozen=True, slots=True)
+class _CrisisSignalsBundle:
+    scan_days: pd.Series
+    recognized_events: tuple[TradeWarEvent, ...]
+    confirmed_crisis_signal: pd.Series
+    context_opinions: pd.DataFrame
+    crisis_context_features: pd.DataFrame
+    true_crisis_signal: pd.Series
+    severe_crisis_signal: pd.Series
+    bubble_fragility_signal: pd.Series
+
+
+@dataclass(frozen=True, slots=True)
+class _SleeveBacktestBundle:
+    decisions: pd.DataFrame
+    taco_events: tuple[TradeWarEvent, ...]
+    taco_only_result: dict[str, object]
+    unified_taco_result: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _PortfolioWeightsSpec:
+    start_date: str
+    end_date: str | None
+    crisis_risk_multiplier: float
+    severe_crisis_risk_multiplier: float | None
+    bubble_fragility_risk_multiplier: float | None
+    portfolio: OverlayPortfolioConfig
+
+
+def _prepare_research_market(
+    price_history,
+    spec: _ResearchMarketSpec,
+) -> _PreparedResearchMarket:
+    close = price_history_to_close_matrix(price_history)
+    close = _normalize_close(close)
+    if float(spec.synthetic_attack_multiple) > 0.0:
+        close = add_synthetic_attack_close(
+            close,
+            attack_symbol=spec.attack_symbol,
+            source_symbol=spec.synthetic_attack_from or spec.benchmark_symbol,
+            multiple=float(spec.synthetic_attack_multiple),
+            annual_expense_rate=float(spec.synthetic_attack_expense_rate),
+        )
+    if spec.end_date is not None:
+        close = close.loc[close.index <= pd.Timestamp(spec.end_date).normalize()].copy()
+    index = close.index[close.index >= pd.Timestamp(spec.start_date).normalize()]
+    if len(index) < 2:
+        raise RuntimeError("Not enough trading days for crisis response research")
+
+    return _PreparedResearchMarket(
+        close=close,
+        index=index,
+        comparison_price_history=close_matrix_to_price_history(close),
+        benchmark_symbol=str(spec.benchmark_symbol).strip().upper(),
+        attack_symbol=str(spec.attack_symbol).strip().upper(),
+        safe_symbol=str(spec.safe_symbol).strip().upper(),
+        cash_symbol=str(spec.cash_symbol).strip().upper() or DEFAULT_CASH_SYMBOL,
+    )
+
+
+def _evaluate_crisis_signals(
+    market: _PreparedResearchMarket,
+    spec: _CrisisSignalsSpec,
+) -> _CrisisSignalsBundle:
+    scan_days = build_price_stress_scan(
+        market.close,
+        start_date=spec.start_date,
+        end_date=spec.end_date,
+        benchmark_symbol=market.benchmark_symbol,
+        attack_symbol=market.attack_symbol,
+    )
+    recognized_events = filter_events_by_price_stress(spec.events, scan_days)
+
+    raw_crisis_signal = build_price_crisis_guard_signal(
+        market.close,
+        start_date=spec.start_date,
+        end_date=spec.end_date,
+        benchmark_symbol=market.benchmark_symbol,
+        drawdown_threshold=float(spec.crisis_drawdown),
+        ma_days=int(spec.ma_days),
+        ma_slope_days=int(spec.ma_slope_days),
+    )
+    confirmed_crisis_signal = _apply_confirm_days(raw_crisis_signal, int(spec.crisis_confirm_days))
+
+    context_mode = str(spec.crisis_context_mode).strip().lower()
+    if context_mode not in CRISIS_CONTEXT_MODES:
+        raise ValueError(f"Unsupported crisis_context_mode: {context_mode!r}")
+    if context_mode == CRISIS_CONTEXT_MODE_V2_CONTEXT_PACK:
+        context_opinions, crisis_context_features = _build_v2_context_opinions(
+            market.close,
+            confirmed_crisis_signal,
+            V2ContextOpinionsSpec(
+                events=spec.events,
+                external_context=spec.external_context,
+                start_date=spec.start_date,
+                end_date=spec.end_date,
+                benchmark_symbol=market.benchmark_symbol,
+                market_symbol=spec.market_symbol,
+                financial_symbols=_parse_upper_str_tuple(spec.context_financial_symbols),
+                credit_pairs=_parse_credit_pairs(spec.context_credit_pairs),
+                rate_symbols=_parse_upper_str_tuple(spec.context_rate_symbols),
+                external_valuation_mode=spec.external_valuation_mode,
+                external_thresholds=spec.external_thresholds,
+            ),
+        )
+    else:
+        context_opinions = build_crisis_context_opinions(
+            market.close,
+            confirmed_crisis_signal,
+            strategy_name="unified_crisis_response_rubric",
+            start_date=spec.start_date,
+            end_date=spec.end_date,
+            benchmark_symbol=market.benchmark_symbol,
+            financial_symbol=spec.financial_symbol,
+            market_symbol=spec.market_symbol,
+            trigger_only=True,
+        )
+        crisis_context_features = pd.DataFrame()
+
+    context_signal = _series_from_context_allowed(context_opinions, confirmed_crisis_signal.index)
+    true_crisis_signal = apply_context_gate_to_signal(confirmed_crisis_signal, context_signal)
+
+    severe_context_name = str(spec.severe_crisis_context).strip().lower()
+    if severe_context_name not in SEVERE_CRISIS_CONTEXTS:
+        raise ValueError(f"Unsupported severe_crisis_context: {severe_context_name!r}")
+    if spec.severe_crisis_risk_multiplier is None:
+        severe_crisis_signal = pd.Series(False, index=true_crisis_signal.index, name="severe_crisis")
+    else:
+        if severe_context_name == SEVERE_CRISIS_CONTEXT_VALUATION_BUBBLE:
+            severe_context = _series_from_context_valuation_bubble(context_opinions, confirmed_crisis_signal.index)
+        else:
+            severe_context = _series_from_context_bool_column(
+                context_opinions,
+                confirmed_crisis_signal.index,
+                "external_valuation_context",
+                require_final_allowed=True,
+            )
+        severe_crisis_signal = apply_context_gate_to_signal(true_crisis_signal, severe_context).rename("severe_crisis")
+
+    if spec.bubble_fragility_risk_multiplier is None:
+        bubble_fragility_signal = pd.Series(False, index=true_crisis_signal.index, name="bubble_fragility")
+    else:
+        bubble_fragility_signal = _build_bubble_fragility_signal(
+            market.close,
+            crisis_context_features,
+            index=true_crisis_signal.index,
+            benchmark_symbol=market.benchmark_symbol,
+            fragility_context=spec.bubble_fragility_context,
+            drawdown_threshold=float(spec.bubble_fragility_drawdown),
+            ma_days=int(spec.bubble_fragility_ma_days),
+            ma_slope_days=int(spec.bubble_fragility_ma_slope_days),
+            confirm_days=int(spec.bubble_fragility_confirm_days),
+        )
+
+    return _CrisisSignalsBundle(
+        scan_days=scan_days,
+        recognized_events=recognized_events,
+        confirmed_crisis_signal=confirmed_crisis_signal,
+        context_opinions=context_opinions,
+        crisis_context_features=crisis_context_features,
+        true_crisis_signal=true_crisis_signal,
+        severe_crisis_signal=severe_crisis_signal,
+        bubble_fragility_signal=bubble_fragility_signal,
+    )
+
+
+def _run_sleeve_backtests(
+    market: _PreparedResearchMarket,
+    signals: _CrisisSignalsBundle,
+    spec: _PortfolioWeightsSpec,
+) -> _SleeveBacktestBundle:
+    decisions = build_event_response_decisions(
+        signals.recognized_events,
+        signals.scan_days,
+        signals.true_crisis_signal,
+        signals.context_opinions,
+    )
+    taco_events = _filter_taco_events_from_decisions(signals.recognized_events, decisions)
+    portfolio = spec.portfolio
+    taco_only_result = _run_taco_overlay_backtest(
+        market.comparison_price_history,
+        recognized_events=signals.recognized_events,
+        start_date=spec.start_date,
+        end_date=spec.end_date,
+        overlay_sleeve_ratios=portfolio.overlay_sleeve_ratios,
+        benchmark_symbol=market.benchmark_symbol,
+        attack_symbol=market.attack_symbol,
+        cash_symbol=market.cash_symbol,
+        turnover_cost_bps=portfolio.turnover_cost_bps,
+    )
+    unified_taco_result = _run_taco_overlay_backtest(
+        market.comparison_price_history,
+        recognized_events=taco_events,
+        start_date=spec.start_date,
+        end_date=spec.end_date,
+        overlay_sleeve_ratios=portfolio.overlay_sleeve_ratios,
+        benchmark_symbol=market.benchmark_symbol,
+        attack_symbol=market.attack_symbol,
+        cash_symbol=market.cash_symbol,
+        turnover_cost_bps=portfolio.turnover_cost_bps,
+    )
+    return _SleeveBacktestBundle(
+        decisions=decisions,
+        taco_events=taco_events,
+        taco_only_result=taco_only_result,
+        unified_taco_result=unified_taco_result,
+    )
+
+
+def _build_crisis_response_portfolios(
+    market: _PreparedResearchMarket,
+    signals: _CrisisSignalsBundle,
+    sleeves: _SleeveBacktestBundle,
+    spec: _PortfolioWeightsSpec,
+) -> StrategyReturnBundle:
+    returns = market.close.pct_change(fill_method=None).fillna(0.0).reindex(market.index).fillna(0.0)
+    for symbol in {market.benchmark_symbol, market.attack_symbol, market.safe_symbol}:
+        if symbol not in returns.columns:
+            returns[symbol] = 0.0
+
+    portfolio = spec.portfolio
+    base_weights = build_tqqq_growth_income_base_weights(
+        market.close,
+        DualDriveBaseWeightsConfig(
+            start_date=spec.start_date,
+            end_date=spec.end_date,
+            benchmark_symbol=market.benchmark_symbol,
+            attack_symbol=market.attack_symbol,
+            safe_symbol=market.safe_symbol,
+            cash_symbol=market.cash_symbol,
+        ),
+    ).reindex(market.index[:-1]).ffill().fillna(0.0)
+    base_returns, base_weights_history = _weights_to_returns(
+        returns,
+        base_weights,
+        strategy_name="base",
+        safe_symbol=market.safe_symbol,
+        cash_symbol=market.cash_symbol,
+        turnover_cost_bps=portfolio.turnover_cost_bps,
+    )
+    def guarded_weights(signal: pd.Series, risk_multiplier: float) -> pd.DataFrame:
+        return apply_price_crisis_guard_to_weights(
+            base_weights,
+            signal,
+            benchmark_symbol=market.benchmark_symbol,
+            attack_symbol=market.attack_symbol,
+            safe_symbol=market.safe_symbol,
+            cash_symbol=market.cash_symbol,
+            risk_multiplier=float(risk_multiplier),
+        ).reindex(market.index[:-1]).ffill().fillna(0.0)
+
+    crisis_weights = guarded_weights(signals.true_crisis_signal, spec.crisis_risk_multiplier)
+    if spec.severe_crisis_risk_multiplier is not None and bool(signals.severe_crisis_signal.any()):
+        severe_weights = guarded_weights(signals.severe_crisis_signal, spec.severe_crisis_risk_multiplier)
+        severe_mask = signals.severe_crisis_signal.reindex(market.index[:-1]).ffill().fillna(False).astype(bool)
+        crisis_weights.loc[severe_mask] = severe_weights.loc[severe_mask]
+
+    fragility_weights = None
+    if spec.bubble_fragility_risk_multiplier is not None and bool(signals.bubble_fragility_signal.any()):
+        fragility_weights = guarded_weights(
+            signals.bubble_fragility_signal,
+            spec.bubble_fragility_risk_multiplier,
+        )
+
+    crisis_returns, crisis_weights_history = _weights_to_returns(
+        returns,
+        crisis_weights,
+        strategy_name="true_crisis_guard_base",
+        safe_symbol=market.safe_symbol,
+        cash_symbol=market.cash_symbol,
+        turnover_cost_bps=portfolio.turnover_cost_bps,
+    )
+
+    outputs = StrategyReturnBundle(
+        returns_by_strategy={
+            "base": base_returns,
+            "true_crisis_guard_base": crisis_returns,
+        },
+        weights_by_strategy={
+            "base": base_weights_history,
+            "true_crisis_guard_base": crisis_weights_history,
+        },
+        trades_by_strategy={},
+    )
+    if fragility_weights is not None:
+        fragility_returns, fragility_weights_history = _weights_to_returns(
+            returns,
+            fragility_weights,
+            strategy_name="bubble_fragility_guard_base",
+            safe_symbol=market.safe_symbol,
+            cash_symbol=market.cash_symbol,
+            turnover_cost_bps=portfolio.turnover_cost_bps,
+        )
+        outputs.returns_by_strategy["bubble_fragility_guard_base"] = fragility_returns
+        outputs.weights_by_strategy["bubble_fragility_guard_base"] = fragility_weights_history
+
+    _add_overlay_strategy_returns(
+        OverlayStrategyReturnsSpec(
+            scenario_prefix="taco_only",
+            taco_result=sleeves.taco_only_result,
+            returns=returns,
+            base_weights=base_weights,
+            index=market.index,
+            outputs=outputs,
+            portfolio=portfolio,
+        )
+    )
+    _add_unified_response_returns(
+        UnifiedResponseReturnsSpec(
+            scenario_prefix="unified_response",
+            taco_result=sleeves.unified_taco_result,
+            returns=returns,
+            base_weights=base_weights,
+            crisis_weights=crisis_weights,
+            crisis_signal=signals.true_crisis_signal,
+            index=market.index,
+            outputs=outputs,
+            portfolio=portfolio,
+            fragility_weights=fragility_weights,
+            fragility_signal=signals.bubble_fragility_signal,
+        )
+    )
+    return outputs
+
+
+def _build_crisis_response_report(
+    signals: _CrisisSignalsBundle,
+    sleeves: _SleeveBacktestBundle,
+    outputs: StrategyReturnBundle,
+) -> dict[str, object]:
+    summary = build_period_summary(
+        outputs.returns_by_strategy,
+        trades_by_strategy=outputs.trades_by_strategy,
+    )
+    deltas = build_deltas_vs_base(summary)
+    diagnostics = build_diagnostics(
+        scan_days=signals.scan_days,
+        recognized_events=signals.recognized_events,
+        trades=sleeves.taco_only_result["trades"],
+    )
+    crisis_diagnostics = build_crisis_guard_diagnostics(signals.true_crisis_signal)
+    audit_reports = build_route_audit_effectiveness_reports(
+        signals.crisis_context_features,
+        confirmed_crisis_signal=signals.confirmed_crisis_signal,
+        true_crisis_signal=signals.true_crisis_signal,
+        returns_by_strategy=outputs.returns_by_strategy,
+        bubble_fragility_signal=signals.bubble_fragility_signal,
+    )
+    return {
+        "summary": summary,
+        "deltas_vs_base": deltas,
+        "diagnostics": diagnostics,
+        "crisis_guard_diagnostics": crisis_diagnostics,
+        "response_decisions": sleeves.decisions,
+        "context_opinions": signals.context_opinions,
+        "crisis_context_features": signals.crisis_context_features,
+        "scan_days": signals.scan_days,
+        "confirmed_crisis_signal": signals.confirmed_crisis_signal,
+        "true_crisis_signal": signals.true_crisis_signal,
+        "severe_crisis_signal": signals.severe_crisis_signal,
+        "bubble_fragility_signal": signals.bubble_fragility_signal,
+        **audit_reports,
+        "recognized_events": events_to_frame(signals.recognized_events),
+        "taco_events": events_to_frame(sleeves.taco_events),
+        "returns_by_strategy": outputs.returns_by_strategy,
+        "weights_by_strategy": outputs.weights_by_strategy,
+    }
 
 
 def run_crisis_response_research(
@@ -1035,302 +1523,79 @@ def run_crisis_response_research(
     external_margin_revision_3m_threshold: float = DEFAULT_EXTERNAL_MARGIN_REVISION_3M_THRESHOLD,
     turnover_cost_bps: float = DEFAULT_TURNOVER_COST_BPS,
 ) -> dict[str, object]:
-    close = price_history_to_close_matrix(price_history)
-    close = _normalize_close(close)
-    if float(synthetic_attack_multiple) > 0.0:
-        close = add_synthetic_attack_close(
-            close,
+    market = _prepare_research_market(
+        price_history,
+        _ResearchMarketSpec(
+            start_date=start_date,
+            end_date=end_date,
+            benchmark_symbol=benchmark_symbol,
             attack_symbol=attack_symbol,
-            source_symbol=synthetic_attack_from or benchmark_symbol,
-            multiple=float(synthetic_attack_multiple),
-            annual_expense_rate=float(synthetic_attack_expense_rate),
-        )
-    if end_date is not None:
-        close = close.loc[close.index <= pd.Timestamp(end_date).normalize()].copy()
-    index = close.index[close.index >= pd.Timestamp(start_date).normalize()]
-    if len(index) < 2:
-        raise RuntimeError("Not enough trading days for crisis response research")
-
-    benchmark_symbol = str(benchmark_symbol).strip().upper()
-    attack_symbol = str(attack_symbol).strip().upper()
-    safe_symbol = str(safe_symbol).strip().upper()
-    cash_symbol = str(cash_symbol).strip().upper() or DEFAULT_CASH_SYMBOL
-    comparison_price_history = close_matrix_to_price_history(close)
-
-    scan_days = build_price_stress_scan(
-        close,
-        start_date=start_date,
-        end_date=end_date,
-        benchmark_symbol=benchmark_symbol,
-        attack_symbol=attack_symbol,
+            safe_symbol=safe_symbol,
+            cash_symbol=cash_symbol,
+            synthetic_attack_from=synthetic_attack_from,
+            synthetic_attack_multiple=synthetic_attack_multiple,
+            synthetic_attack_expense_rate=synthetic_attack_expense_rate,
+        ),
     )
-    recognized_events = filter_events_by_price_stress(events, scan_days)
-
-    raw_crisis_signal = build_price_crisis_guard_signal(
-        close,
-        start_date=start_date,
-        end_date=end_date,
-        benchmark_symbol=benchmark_symbol,
-        drawdown_threshold=float(crisis_drawdown),
-        ma_days=int(ma_days),
-        ma_slope_days=int(ma_slope_days),
+    external_thresholds = ExternalValuationThresholds(
+        external_trailing_pe_threshold=external_trailing_pe_threshold,
+        external_forward_pe_threshold=external_forward_pe_threshold,
+        external_cape_threshold=external_cape_threshold,
+        external_unprofitable_growth_threshold=external_unprofitable_growth_threshold,
+        external_pct_above_200d_threshold=external_pct_above_200d_threshold,
+        external_pct_above_50d_threshold=external_pct_above_50d_threshold,
+        external_new_high_new_low_spread_threshold=external_new_high_new_low_spread_threshold,
+        external_advance_decline_drawdown_threshold=external_advance_decline_drawdown_threshold,
+        external_negative_earnings_share_threshold=external_negative_earnings_share_threshold,
+        external_earnings_revision_3m_threshold=external_earnings_revision_3m_threshold,
+        external_margin_revision_3m_threshold=external_margin_revision_3m_threshold,
     )
-    confirmed_crisis_signal = _apply_confirm_days(raw_crisis_signal, int(crisis_confirm_days))
-    crisis_context_mode = str(crisis_context_mode).strip().lower()
-    if crisis_context_mode not in CRISIS_CONTEXT_MODES:
-        raise ValueError(f"Unsupported crisis_context_mode: {crisis_context_mode!r}")
-    if crisis_context_mode == CRISIS_CONTEXT_MODE_V2_CONTEXT_PACK:
-        context_opinions, crisis_context_features = _build_v2_context_opinions(
-            close,
-            confirmed_crisis_signal,
+    signals = _evaluate_crisis_signals(
+        market,
+        _CrisisSignalsSpec(
             events=events,
-            external_context=external_context,
             start_date=start_date,
             end_date=end_date,
-            benchmark_symbol=benchmark_symbol,
-            market_symbol=market_symbol,
-            financial_symbols=_parse_upper_str_tuple(context_financial_symbols),
-            credit_pairs=_parse_credit_pairs(context_credit_pairs),
-            rate_symbols=_parse_upper_str_tuple(context_rate_symbols),
-            external_valuation_mode=external_valuation_mode,
-            external_trailing_pe_threshold=float(external_trailing_pe_threshold),
-            external_forward_pe_threshold=float(external_forward_pe_threshold),
-            external_cape_threshold=float(external_cape_threshold),
-            external_unprofitable_growth_threshold=float(external_unprofitable_growth_threshold),
-            external_pct_above_200d_threshold=float(external_pct_above_200d_threshold),
-            external_pct_above_50d_threshold=float(external_pct_above_50d_threshold),
-            external_new_high_new_low_spread_threshold=float(external_new_high_new_low_spread_threshold),
-            external_advance_decline_drawdown_threshold=float(external_advance_decline_drawdown_threshold),
-            external_negative_earnings_share_threshold=float(external_negative_earnings_share_threshold),
-            external_earnings_revision_3m_threshold=float(external_earnings_revision_3m_threshold),
-            external_margin_revision_3m_threshold=float(external_margin_revision_3m_threshold),
-        )
-    else:
-        context_opinions = build_crisis_context_opinions(
-            close,
-            confirmed_crisis_signal,
-            strategy_name="unified_crisis_response_rubric",
-            start_date=start_date,
-            end_date=end_date,
-            benchmark_symbol=benchmark_symbol,
+            crisis_drawdown=crisis_drawdown,
+            ma_days=ma_days,
+            ma_slope_days=ma_slope_days,
+            crisis_confirm_days=crisis_confirm_days,
             financial_symbol=financial_symbol,
             market_symbol=market_symbol,
-            trigger_only=True,
-        )
-        crisis_context_features = pd.DataFrame()
-    context_signal = _series_from_context_allowed(context_opinions, confirmed_crisis_signal.index)
-    true_crisis_signal = apply_context_gate_to_signal(confirmed_crisis_signal, context_signal)
-    severe_crisis_context = str(severe_crisis_context).strip().lower()
-    if severe_crisis_context not in SEVERE_CRISIS_CONTEXTS:
-        raise ValueError(f"Unsupported severe_crisis_context: {severe_crisis_context!r}")
-    if severe_crisis_risk_multiplier is None:
-        severe_crisis_signal = pd.Series(False, index=true_crisis_signal.index, name="severe_crisis")
-    else:
-        if severe_crisis_context == SEVERE_CRISIS_CONTEXT_VALUATION_BUBBLE:
-            severe_context = _series_from_context_valuation_bubble(context_opinions, confirmed_crisis_signal.index)
-        else:
-            severe_context = _series_from_context_bool_column(
-                context_opinions,
-                confirmed_crisis_signal.index,
-                "external_valuation_context",
-                require_final_allowed=True,
-            )
-        severe_crisis_signal = apply_context_gate_to_signal(true_crisis_signal, severe_context).rename("severe_crisis")
-
-    if bubble_fragility_risk_multiplier is None:
-        bubble_fragility_signal = pd.Series(False, index=true_crisis_signal.index, name="bubble_fragility")
-    else:
-        bubble_fragility_signal = _build_bubble_fragility_signal(
-            close,
-            crisis_context_features,
-            index=true_crisis_signal.index,
-            benchmark_symbol=benchmark_symbol,
-            fragility_context=bubble_fragility_context,
-            drawdown_threshold=float(bubble_fragility_drawdown),
-            ma_days=int(bubble_fragility_ma_days),
-            ma_slope_days=int(bubble_fragility_ma_slope_days),
-            confirm_days=int(bubble_fragility_confirm_days),
-        )
-
-    decisions = build_event_response_decisions(
-        recognized_events,
-        scan_days,
-        true_crisis_signal,
-        context_opinions,
+            crisis_context_mode=crisis_context_mode,
+            severe_crisis_risk_multiplier=severe_crisis_risk_multiplier,
+            severe_crisis_context=severe_crisis_context,
+            bubble_fragility_risk_multiplier=bubble_fragility_risk_multiplier,
+            bubble_fragility_context=bubble_fragility_context,
+            bubble_fragility_drawdown=bubble_fragility_drawdown,
+            bubble_fragility_ma_days=bubble_fragility_ma_days,
+            bubble_fragility_ma_slope_days=bubble_fragility_ma_slope_days,
+            bubble_fragility_confirm_days=bubble_fragility_confirm_days,
+            external_context=external_context,
+            context_financial_symbols=context_financial_symbols,
+            context_credit_pairs=context_credit_pairs,
+            context_rate_symbols=context_rate_symbols,
+            external_valuation_mode=external_valuation_mode,
+            external_thresholds=external_thresholds,
+        ),
     )
-    taco_events = _filter_taco_events_from_decisions(recognized_events, decisions)
-
-    taco_only_result = _run_taco_overlay_backtest(
-        comparison_price_history,
-        recognized_events=recognized_events,
+    portfolio_spec = _PortfolioWeightsSpec(
         start_date=start_date,
         end_date=end_date,
-        overlay_sleeve_ratios=overlay_sleeve_ratios,
-        benchmark_symbol=benchmark_symbol,
-        attack_symbol=attack_symbol,
-        cash_symbol=cash_symbol,
-        turnover_cost_bps=turnover_cost_bps,
-    )
-    unified_taco_result = _run_taco_overlay_backtest(
-        comparison_price_history,
-        recognized_events=taco_events,
-        start_date=start_date,
-        end_date=end_date,
-        overlay_sleeve_ratios=overlay_sleeve_ratios,
-        benchmark_symbol=benchmark_symbol,
-        attack_symbol=attack_symbol,
-        cash_symbol=cash_symbol,
-        turnover_cost_bps=turnover_cost_bps,
-    )
-
-    returns = close.pct_change(fill_method=None).fillna(0.0).reindex(index).fillna(0.0)
-    for symbol in {benchmark_symbol, attack_symbol, safe_symbol}:
-        if symbol not in returns.columns:
-            returns[symbol] = 0.0
-
-    base_weights = build_tqqq_growth_income_base_weights(
-        close,
-        start_date=start_date,
-        end_date=end_date,
-        benchmark_symbol=benchmark_symbol,
-        attack_symbol=attack_symbol,
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
-    ).reindex(index[:-1]).ffill().fillna(0.0)
-    base_returns, base_weights_history = _weights_to_returns(
-        returns,
-        base_weights,
-        strategy_name="base",
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
-        turnover_cost_bps=turnover_cost_bps,
-    )
-    crisis_weights = apply_price_crisis_guard_to_weights(
-        base_weights,
-        true_crisis_signal,
-        benchmark_symbol=benchmark_symbol,
-        attack_symbol=attack_symbol,
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
-        risk_multiplier=float(crisis_risk_multiplier),
-    ).reindex(index[:-1]).ffill().fillna(0.0)
-    if severe_crisis_risk_multiplier is not None and bool(severe_crisis_signal.any()):
-        severe_weights = apply_price_crisis_guard_to_weights(
-            base_weights,
-            severe_crisis_signal,
-            benchmark_symbol=benchmark_symbol,
-            attack_symbol=attack_symbol,
-            safe_symbol=safe_symbol,
-            cash_symbol=cash_symbol,
-            risk_multiplier=float(severe_crisis_risk_multiplier),
-        ).reindex(index[:-1]).ffill().fillna(0.0)
-        severe_mask = severe_crisis_signal.reindex(index[:-1]).ffill().fillna(False).astype(bool)
-        crisis_weights.loc[severe_mask] = severe_weights.loc[severe_mask]
-    fragility_weights = None
-    if bubble_fragility_risk_multiplier is not None and bool(bubble_fragility_signal.any()):
-        fragility_weights = apply_price_crisis_guard_to_weights(
-            base_weights,
-            bubble_fragility_signal,
-            benchmark_symbol=benchmark_symbol,
-            attack_symbol=attack_symbol,
-            safe_symbol=safe_symbol,
-            cash_symbol=cash_symbol,
-            risk_multiplier=float(bubble_fragility_risk_multiplier),
-        ).reindex(index[:-1]).ffill().fillna(0.0)
-    crisis_returns, crisis_weights_history = _weights_to_returns(
-        returns,
-        crisis_weights,
-        strategy_name="true_crisis_guard_base",
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
-        turnover_cost_bps=turnover_cost_bps,
-    )
-
-    returns_by_strategy: dict[str, pd.Series] = {
-        "base": base_returns,
-        "true_crisis_guard_base": crisis_returns,
-    }
-    weights_by_strategy: dict[str, pd.DataFrame] = {
-        "base": base_weights_history,
-        "true_crisis_guard_base": crisis_weights_history,
-    }
-    if fragility_weights is not None:
-        fragility_returns, fragility_weights_history = _weights_to_returns(
-            returns,
-            fragility_weights,
-            strategy_name="bubble_fragility_guard_base",
-            safe_symbol=safe_symbol,
-            cash_symbol=cash_symbol,
+        crisis_risk_multiplier=crisis_risk_multiplier,
+        severe_crisis_risk_multiplier=severe_crisis_risk_multiplier,
+        bubble_fragility_risk_multiplier=bubble_fragility_risk_multiplier,
+        portfolio=OverlayPortfolioConfig(
+            overlay_sleeve_ratios=overlay_sleeve_ratios,
+            attack_symbol=market.attack_symbol,
+            safe_symbol=market.safe_symbol,
+            cash_symbol=market.cash_symbol,
             turnover_cost_bps=turnover_cost_bps,
-        )
-        returns_by_strategy["bubble_fragility_guard_base"] = fragility_returns
-        weights_by_strategy["bubble_fragility_guard_base"] = fragility_weights_history
-    trades_by_strategy: dict[str, pd.DataFrame] = {}
-    _add_overlay_strategy_returns(
-        scenario_prefix="taco_only",
-        taco_result=taco_only_result,
-        returns=returns,
-        base_weights=base_weights,
-        returns_by_strategy=returns_by_strategy,
-        weights_by_strategy=weights_by_strategy,
-        trades_by_strategy=trades_by_strategy,
-        index=index,
-        overlay_sleeve_ratios=overlay_sleeve_ratios,
-        attack_symbol=attack_symbol,
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
-        turnover_cost_bps=turnover_cost_bps,
+        ),
     )
-    _add_unified_response_returns(
-        scenario_prefix="unified_response",
-        taco_result=unified_taco_result,
-        returns=returns,
-        base_weights=base_weights,
-        crisis_weights=crisis_weights,
-        crisis_signal=true_crisis_signal,
-        fragility_weights=fragility_weights,
-        fragility_signal=bubble_fragility_signal,
-        returns_by_strategy=returns_by_strategy,
-        weights_by_strategy=weights_by_strategy,
-        trades_by_strategy=trades_by_strategy,
-        index=index,
-        overlay_sleeve_ratios=overlay_sleeve_ratios,
-        attack_symbol=attack_symbol,
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
-        turnover_cost_bps=turnover_cost_bps,
-    )
-
-    summary = build_period_summary(returns_by_strategy, trades_by_strategy=trades_by_strategy)
-    deltas = build_deltas_vs_base(summary)
-    diagnostics = build_diagnostics(scan_days=scan_days, recognized_events=recognized_events, trades=taco_only_result["trades"])
-    crisis_diagnostics = build_crisis_guard_diagnostics(true_crisis_signal)
-    audit_reports = build_route_audit_effectiveness_reports(
-        crisis_context_features,
-        confirmed_crisis_signal=confirmed_crisis_signal,
-        true_crisis_signal=true_crisis_signal,
-        returns_by_strategy=returns_by_strategy,
-        bubble_fragility_signal=bubble_fragility_signal,
-    )
-    return {
-        "summary": summary,
-        "deltas_vs_base": deltas,
-        "diagnostics": diagnostics,
-        "crisis_guard_diagnostics": crisis_diagnostics,
-        "response_decisions": decisions,
-        "context_opinions": context_opinions,
-        "crisis_context_features": crisis_context_features,
-        "scan_days": scan_days,
-        "confirmed_crisis_signal": confirmed_crisis_signal,
-        "true_crisis_signal": true_crisis_signal,
-        "severe_crisis_signal": severe_crisis_signal,
-        "bubble_fragility_signal": bubble_fragility_signal,
-        **audit_reports,
-        "recognized_events": events_to_frame(recognized_events),
-        "taco_events": events_to_frame(taco_events),
-        "returns_by_strategy": returns_by_strategy,
-        "weights_by_strategy": weights_by_strategy,
-    }
+    sleeves = _run_sleeve_backtests(market, signals, portfolio_spec)
+    outputs = _build_crisis_response_portfolios(market, signals, sleeves, portfolio_spec)
+    return _build_crisis_response_report(signals, sleeves, outputs)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1602,6 +1867,7 @@ __all__ = [
     "EXTERNAL_VALUATION_MODE_PRICE_AND_EXTERNAL",
     "EXTERNAL_VALUATION_MODE_PRICE_OR_EXTERNAL",
     "EXTERNAL_VALUATION_MODES",
+    "ExternalValuationThresholds",
     "FRAGILITY_CONTEXT_EXTERNAL_BREADTH_OR_QUALITY",
     "FRAGILITY_CONTEXT_EXTERNAL_VALUATION",
     "FRAGILITY_CONTEXT_VALUATION_BUBBLE",
@@ -1613,6 +1879,8 @@ __all__ = [
     "SEVERE_CRISIS_CONTEXT_EXTERNAL_VALUATION",
     "SEVERE_CRISIS_CONTEXT_VALUATION_BUBBLE",
     "SEVERE_CRISIS_CONTEXTS",
+    "UnifiedResponseReturnsSpec",
+    "V2ContextOpinionsSpec",
     "build_route_audit_effectiveness_reports",
     "build_event_response_decisions",
     "main",

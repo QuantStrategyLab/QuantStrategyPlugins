@@ -15,6 +15,7 @@ from .taco_panic_rebound_overlay_compare import (
     DEFAULT_PRICE_CRISIS_GUARD_MA_DAYS,
     DEFAULT_PRICE_CRISIS_GUARD_MA_SLOPE_DAYS,
     DEFAULT_SYNTHETIC_ATTACK_EXPENSE_RATE,
+    DualDriveBaseWeightsConfig,
     add_synthetic_attack_close,
     apply_price_crisis_guard_to_weights,
     build_price_crisis_guard_signal,
@@ -690,12 +691,14 @@ def run_crisis_guard_research(
 
     base_weights = build_tqqq_growth_income_base_weights(
         close,
-        start_date=start_date,
-        end_date=end_date,
-        benchmark_symbol=benchmark_symbol,
-        attack_symbol=attack_symbol,
-        safe_symbol=safe_symbol,
-        cash_symbol=cash_symbol,
+        DualDriveBaseWeightsConfig(
+            start_date=start_date,
+            end_date=end_date,
+            benchmark_symbol=benchmark_symbol,
+            attack_symbol=attack_symbol,
+            safe_symbol=safe_symbol,
+            cash_symbol=cash_symbol,
+        ),
     ).reindex(index[:-1]).ffill().fillna(0.0)
     base_returns, base_weights_history = _weights_to_returns(
         returns,

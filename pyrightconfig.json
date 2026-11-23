@@ -1,0 +1,32 @@
+{
+  "include": [
+    "src/quant_strategy_plugins"
+  ],
+  "ignore": [
+    "src/quant_strategy_plugins/ai_audit.py",
+    "src/quant_strategy_plugins/macro_external_context.py",
+    "src/quant_strategy_plugins/plugin_lineage.py",
+    "src/quant_strategy_plugins/plugin_signal_utils.py",
+    "src/quant_strategy_plugins/plugins/benchmark_drawdown_guard.py",
+    "src/quant_strategy_plugins/plugins/crisis_context_research.py",
+    "src/quant_strategy_plugins/plugins/crisis_regime_guard_research.py",
+    "src/quant_strategy_plugins/plugins/crisis_response_research.py",
+    "src/quant_strategy_plugins/plugins/crisis_response_shadow_plugin.py",
+    "src/quant_strategy_plugins/plugins/macro_risk_governor_plugin.py",
+    "src/quant_strategy_plugins/plugins/panic_reversal_shadow_plugin.py",
+    "src/quant_strategy_plugins/plugins/taco_panic_rebound_backtest.py",
+    "src/quant_strategy_plugins/plugins/taco_panic_rebound_overlay_compare.py",
+    "src/quant_strategy_plugins/plugins/taco_panic_rebound_research.py",
+    "src/quant_strategy_plugins/plugins/taco_rebound_shadow_plugin.py",
+    "src/quant_strategy_plugins/qqq_price_regime_observer_v2.py",
+    "src/quant_strategy_plugins/rates_context_observer_research.py",
+    "src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py",
+    "src/quant_strategy_plugins/semiconductor_regime_observer_research.py",
+    "src/quant_strategy_plugins/tqqq_market_regime_control_present.py",
+    "src/quant_strategy_plugins/tqqq_research_input_bundle.py",
+    "src/quant_strategy_plugins/volatility_delever_price_rebound.py",
+    "src/quant_strategy_plugins/yfinance_prices.py"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic"
+}

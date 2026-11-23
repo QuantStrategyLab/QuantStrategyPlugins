@@ -1,0 +1,24 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["B", "C901"]
+
+[lint.mccabe]
+max-complexity = 15
+
+[lint.per-file-ignores]
+"src/quant_strategy_plugins/market_regime_composition_research.py" = ["C901"]
+"src/quant_strategy_plugins/plugins/crisis_response_research.py" = ["C901"]
+"src/quant_strategy_plugins/plugins/crisis_response_shadow_plugin.py" = ["C901"]
+"src/quant_strategy_plugins/plugins/macro_risk_governor_plugin.py" = ["C901"]
+"src/quant_strategy_plugins/plugins/market_regime_control_plugin.py" = ["C901"]
+"src/quant_strategy_plugins/plugins/panic_reversal_shadow_plugin.py" = ["C901"]
+"src/quant_strategy_plugins/plugins/taco_panic_rebound_backtest.py" = ["C901"]
+"src/quant_strategy_plugins/qqq_price_regime_observer_v2.py" = ["B", "C901"]
+"src/quant_strategy_plugins/rates_context_observer_research.py" = ["B", "C901"]
+"src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py" = ["B", "C901"]
+"src/quant_strategy_plugins/semiconductor_regime_observer_research.py" = ["B", "C901"]
+"src/quant_strategy_plugins/strategy_plugin_runner.py" = ["C901"]
+"src/quant_strategy_plugins/tqqq_market_regime_control_present.py" = ["C901"]
+"src/quant_strategy_plugins/tqqq_research_input_bundle.py" = ["B"]

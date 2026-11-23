@@ -52,6 +52,13 @@ jobs:
         run: python -m pytest -q
       - name: Ruff
         run: ruff check .
+      - name: Architecture & Type Gates (Ruff B/C901, Import Linter, Pyright)
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir "import-linter==2.1" "pyright==1.1.407"
+          ruff check --config .ruff-arch.toml src/
+          PYTHONPATH=src lint-imports
+          pyright
       - name: Build package
         run: python -m build
 

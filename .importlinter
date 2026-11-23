@@ -1,0 +1,17 @@
+[importlinter]
+root_package = quant_strategy_plugins
+
+[importlinter:contract:core-no-plugins-or-runner]
+name = Core envelope, catalog, policies, and artifact helpers must not import plugins or runner
+type = forbidden
+source_modules =
+    quant_strategy_plugins._config_values
+    quant_strategy_plugins.artifacts
+    quant_strategy_plugins.plugin_catalog
+    quant_strategy_plugins.plugin_lineage
+    quant_strategy_plugins.plugin_policies
+    quant_strategy_plugins.plugin_signal_envelope_v2
+    quant_strategy_plugins.plugin_signal_utils
+forbidden_modules =
+    quant_strategy_plugins.plugins
+    quant_strategy_plugins.strategy_plugin_runner

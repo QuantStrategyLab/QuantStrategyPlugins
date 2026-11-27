@@ -80,6 +80,13 @@ def test_validate_composite_candidate_rejects_authority_and_contract_violations(
     assert live_catalog.valid is False
     assert "catalog_authority_forbidden" in live_catalog.errors
 
+    missing_flags_catalog = validate_composite_candidate(
+        _spec(),
+        catalog={"entries": [{"plugin_id": "market_regime_control", "status": "DEFERRED"}]},
+    )
+    assert missing_flags_catalog.valid is False
+    assert "catalog_authority_forbidden" in missing_flags_catalog.errors
+
     bad_evidence_nl = validate_composite_candidate(
         _spec(lifecycle_stage="shadow_active", evidence_digest=_EVIDENCE + "\n")
     )

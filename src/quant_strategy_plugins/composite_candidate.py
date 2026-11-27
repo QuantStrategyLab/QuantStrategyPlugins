@@ -87,6 +87,56 @@ class CompositeCandidateValidation:
         }
 
 
+def _index_catalog(
+    catalog_data: object,
+    errors: list[str],
+) -> dict[str, Mapping[str, Any]]:
+    raw_entries = catalog_data.get("entries") if isinstance(catalog_data, Mapping) else None
+    if not isinstance(raw_entries, list):
+        errors.append("invalid_plugin_catalog")
+        return {}
+
+    known_plugins: dict[str, Mapping[str, Any]] = {}
+    for entry in raw_entries:
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("plugin_id"), str):
+            errors.append("invalid_plugin_catalog")
+            continue
+        known_plugins[entry["plugin_id"]] = entry
+    return known_plugins
+
+
+def _validate_catalog_binding(
+    spec: CompositeCandidateSpec,
+    known_plugins: Mapping[str, Mapping[str, Any]],
+    errors: list[str],
+) -> None:
+    catalog_entry = known_plugins.get(spec.plugin_id)
+    if catalog_entry is None:
+        errors.append("unknown_plugin_id")
+        return
+    if (
+        catalog_entry.get("position_mutation_allowed") is not False
+        or catalog_entry.get("broker_order_allowed") is not False
+        or str(catalog_entry.get("status", "")).upper() == "LIVE_ENABLED"
+    ):
+        errors.append("catalog_authority_forbidden")
+
+
+def _validate_stage_and_digests(spec: CompositeCandidateSpec, errors: list[str]) -> None:
+    if not isinstance(spec.input_manifest_sha256, str) or not _SHA256_RE.fullmatch(spec.input_manifest_sha256):
+        errors.append("invalid_input_manifest_sha256")
+
+    if spec.lifecycle_stage not in VALID_LIFECYCLE_STAGES:
+        errors.append("invalid_lifecycle_stage")
+    elif spec.lifecycle_stage != "research_active":
+        if not isinstance(spec.evidence_digest, str) or not _SHA256_RE.fullmatch(spec.evidence_digest):
+            errors.append("missing_evidence_digest")
+    elif spec.evidence_digest is not None and (
+        not isinstance(spec.evidence_digest, str) or not _SHA256_RE.fullmatch(spec.evidence_digest)
+    ):
+        errors.append("invalid_evidence_digest")
+
+
 def validate_composite_candidate(
     spec: CompositeCandidateSpec,
     *,
@@ -107,43 +157,13 @@ def validate_composite_candidate(
             errors.append(f"missing_{field_name}")
 
     catalog_data = build_plugin_catalog() if catalog is None else catalog
-    raw_entries = catalog_data.get("entries") if isinstance(catalog_data, Mapping) else None
-    if not isinstance(raw_entries, list):
-        errors.append("invalid_plugin_catalog")
-        known_plugins: dict[str, Mapping[str, Any]] = {}
-    else:
-        known_plugins = {}
-        for entry in raw_entries:
-            if not isinstance(entry, Mapping) or not isinstance(entry.get("plugin_id"), str):
-                errors.append("invalid_plugin_catalog")
-                continue
-            known_plugins[entry["plugin_id"]] = entry
-
-    catalog_entry = known_plugins.get(spec.plugin_id)
-    if catalog_entry is None:
-        errors.append("unknown_plugin_id")
-    elif (
-        bool(catalog_entry.get("position_mutation_allowed"))
-        or bool(catalog_entry.get("broker_order_allowed"))
-        or str(catalog_entry.get("status", "")).upper() == "LIVE_ENABLED"
-    ):
-        errors.append("catalog_authority_forbidden")
+    known_plugins = _index_catalog(catalog_data, errors)
+    _validate_catalog_binding(spec, known_plugins, errors)
 
     if spec.asset_class not in SUPPORTED_ASSET_CLASSES:
         errors.append("unsupported_asset_class")
 
-    if not isinstance(spec.input_manifest_sha256, str) or not _SHA256_RE.fullmatch(spec.input_manifest_sha256):
-        errors.append("invalid_input_manifest_sha256")
-
-    if spec.lifecycle_stage not in VALID_LIFECYCLE_STAGES:
-        errors.append("invalid_lifecycle_stage")
-    elif spec.lifecycle_stage != "research_active":
-        if not isinstance(spec.evidence_digest, str) or not _SHA256_RE.fullmatch(spec.evidence_digest):
-            errors.append("missing_evidence_digest")
-    elif spec.evidence_digest is not None and (
-        not isinstance(spec.evidence_digest, str) or not _SHA256_RE.fullmatch(spec.evidence_digest)
-    ):
-        errors.append("invalid_evidence_digest")
+    _validate_stage_and_digests(spec, errors)
 
     if not isinstance(spec.position_mutation_allowed, bool) or spec.position_mutation_allowed is not False:
         errors.append("position_mutation_forbidden")

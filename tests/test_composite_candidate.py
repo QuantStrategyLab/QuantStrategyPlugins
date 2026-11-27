@@ -55,10 +55,10 @@ def test_validate_composite_candidate_rejects_authority_and_contract_violations(
             candidate_id="  ",
             plugin_id="unregistered_plugin",
             asset_class="exotic_margin",
-            input_manifest_sha256="short",
+            input_manifest_sha256=_SHA + "\n",
             lifecycle_stage="live_enabled",
             position_mutation_allowed=True,
-            broker_order_allowed=True,
+            broker_order_allowed=None,
         )
     )
     assert bad.valid is False
@@ -71,6 +71,20 @@ def test_validate_composite_candidate_rejects_authority_and_contract_violations(
         "position_mutation_forbidden",
         "broker_order_forbidden",
     }
+    assert bad.to_dict()["valid"] is False
+
+    live_catalog = validate_composite_candidate(
+        _spec(),
+        catalog={"entries": [{"plugin_id": "market_regime_control", "status": "LIVE_ENABLED", "broker_order_allowed": True}]},
+    )
+    assert live_catalog.valid is False
+    assert "catalog_authority_forbidden" in live_catalog.errors
+
+    bad_evidence_nl = validate_composite_candidate(
+        _spec(lifecycle_stage="shadow_active", evidence_digest=_EVIDENCE + "\n")
+    )
+    assert bad_evidence_nl.valid is False
+    assert "missing_evidence_digest" in bad_evidence_nl.errors
 
 
 def test_validate_composite_candidate_requires_evidence_beyond_research_active() -> None:

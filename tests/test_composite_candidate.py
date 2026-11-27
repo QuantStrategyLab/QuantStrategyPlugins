@@ -104,3 +104,23 @@ def test_validate_composite_candidate_requires_evidence_beyond_research_active()
     )
     assert bad_optional_evidence.valid is False
     assert "invalid_evidence_digest" in bad_optional_evidence.errors
+
+
+def test_validate_composite_candidate_cli(tmp_path) -> None:
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "validate_composite_candidate.py"
+    valid_path = tmp_path / "valid.json"
+    valid_path.write_text(json.dumps(_spec().to_dict()), encoding="utf-8")
+    ok = subprocess.run([sys.executable, str(script), "--spec", str(valid_path)], capture_output=True, text=True, check=False)
+    assert ok.returncode == 0
+    assert json.loads(ok.stdout)["valid"] is True
+
+    invalid_path = tmp_path / "invalid.json"
+    invalid_path.write_text(json.dumps({**_spec().to_dict(), "broker_order_allowed": True}), encoding="utf-8")
+    bad = subprocess.run([sys.executable, str(script), "--spec", str(invalid_path)], capture_output=True, text=True, check=False)
+    assert bad.returncode == 1
+    assert "broker_order_forbidden" in json.loads(bad.stdout)["errors"]

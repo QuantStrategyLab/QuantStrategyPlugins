@@ -9,3 +9,4 @@
 - [Ten-year rates context observation research](rates-context-observer-research.md) · [简体中文](rates-context-observer-research.zh-CN.md)
 - [Semiconductor regime observation research](semiconductor-regime-observer-research.md) · [简体中文](semiconductor-regime-observer-research.zh-CN.md)
 - [Strategy plugin signal envelope V2: consumer binding](strategy-plugin-signal-envelope-v2.md) · [简体中文](strategy-plugin-signal-envelope-v2.zh-CN.md)
+- [Strategy Plugin Marketplace Architecture (V2 Composite Candidate)](strategy-plugin-marketplace.md)

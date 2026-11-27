@@ -104,3 +104,55 @@ def test_validate_composite_candidate_requires_evidence_beyond_research_active()
     )
     assert bad_optional_evidence.valid is False
     assert "invalid_evidence_digest" in bad_optional_evidence.errors
+
+
+def test_validate_composite_candidate_cli(tmp_path) -> None:
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "validate_composite_candidate.py"
+    env = {**os.environ, "PYTHONPATH": str(repo_root / "src")}
+
+    valid_path = tmp_path / "valid.json"
+    valid_path.write_text(json.dumps(_spec().to_dict()), encoding="utf-8")
+    ok = subprocess.run([sys.executable, str(script), "--spec", str(valid_path)], capture_output=True, text=True, check=False, env=env)
+    assert ok.returncode == 0
+    assert json.loads(ok.stdout)["valid"] is True
+
+    malformed = tmp_path / "bad.json"
+    malformed.write_text("{not-json", encoding="utf-8")
+    bad_json = subprocess.run([sys.executable, str(script), "--spec", str(malformed)], capture_output=True, text=True, check=False, env=env)
+    assert bad_json.returncode == 1
+    assert json.loads(bad_json.stdout)["valid"] is False
+
+    missing_fields = tmp_path / "incomplete.json"
+    missing_fields.write_text('{"candidate_id": "only"}', encoding="utf-8")
+    incomplete = subprocess.run([sys.executable, str(script), "--spec", str(missing_fields)], capture_output=True, text=True, check=False, env=env)
+    assert incomplete.returncode == 1
+    assert "Missing required fields" in json.loads(incomplete.stdout)["errors"][0]
+
+    missing_file = subprocess.run([sys.executable, str(script), "--spec", str(tmp_path / "absent.json")], capture_output=True, text=True, check=False, env=env)
+    assert missing_file.returncode == 1
+    assert json.loads(missing_file.stdout)["valid"] is False
+
+    invalid_path = tmp_path / "invalid.json"
+    invalid_path.write_text(json.dumps({**_spec().to_dict(), "broker_order_allowed": True}), encoding="utf-8")
+    bad = subprocess.run([sys.executable, str(script), "--spec", str(invalid_path)], capture_output=True, text=True, check=False, env=env)
+    assert bad.returncode == 1
+    assert "broker_order_forbidden" in json.loads(bad.stdout)["errors"]
+
+    unhashable_path = tmp_path / "unhashable.json"
+    unhashable_path.write_text(json.dumps({**_spec().to_dict(), "plugin_id": ["unhashable"]}), encoding="utf-8")
+    unhashable = subprocess.run([sys.executable, str(script), "--spec", str(unhashable_path)], capture_output=True, text=True, check=False, env=env)
+    assert unhashable.returncode == 1
+    assert json.loads(unhashable.stdout)["valid"] is False
+
+    mut_path = tmp_path / "mutation.json"
+    mut_path.write_text(json.dumps({**_spec().to_dict(), "position_mutation_allowed": True}), encoding="utf-8")
+    mut = subprocess.run([sys.executable, str(script), "--spec", str(mut_path)], capture_output=True, text=True, check=False, env=env)
+    assert mut.returncode == 1
+    assert "position_mutation_forbidden" in json.loads(mut.stdout)["errors"]

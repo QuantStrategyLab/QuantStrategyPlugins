@@ -43,10 +43,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         spec = _load_spec(args.spec)
+        result = validate_composite_candidate(spec)
     except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
         print(json.dumps({"valid": False, "errors": [str(exc)]}, indent=2, sort_keys=True))
         return 1
-    result = validate_composite_candidate(spec)
     print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
     return 0 if result.valid else 1
 

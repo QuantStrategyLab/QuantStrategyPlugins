@@ -141,6 +141,18 @@ def test_validate_composite_candidate_cli(tmp_path) -> None:
 
     invalid_path = tmp_path / "invalid.json"
     invalid_path.write_text(json.dumps({**_spec().to_dict(), "broker_order_allowed": True}), encoding="utf-8")
-    bad = subprocess.run([sys.executable, str(script), "--spec", str(invalid_path)], capture_output=True, text=True, check=False)
+    bad = subprocess.run([sys.executable, str(script), "--spec", str(invalid_path)], capture_output=True, text=True, check=False, env=env)
     assert bad.returncode == 1
     assert "broker_order_forbidden" in json.loads(bad.stdout)["errors"]
+
+    unhashable_path = tmp_path / "unhashable.json"
+    unhashable_path.write_text(json.dumps({**_spec().to_dict(), "plugin_id": ["unhashable"]}), encoding="utf-8")
+    unhashable = subprocess.run([sys.executable, str(script), "--spec", str(unhashable_path)], capture_output=True, text=True, check=False, env=env)
+    assert unhashable.returncode == 1
+    assert json.loads(unhashable.stdout)["valid"] is False
+
+    mut_path = tmp_path / "mutation.json"
+    mut_path.write_text(json.dumps({**_spec().to_dict(), "position_mutation_allowed": True}), encoding="utf-8")
+    mut = subprocess.run([sys.executable, str(script), "--spec", str(mut_path)], capture_output=True, text=True, check=False, env=env)
+    assert mut.returncode == 1
+    assert "position_mutation_forbidden" in json.loads(mut.stdout)["errors"]

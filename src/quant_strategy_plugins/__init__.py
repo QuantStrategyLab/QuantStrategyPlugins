@@ -5,6 +5,14 @@ from .benchmark_drawdown_guard import (
     SCHEMA_VERSION as BENCHMARK_DRAWDOWN_GUARD_SCHEMA_VERSION,
     build_benchmark_drawdown_guard_signal,
 )
+from .composite_candidate import (
+    COMPOSITE_CANDIDATE_SCHEMA_VERSION,
+    SUPPORTED_ASSET_CLASSES,
+    VALID_LIFECYCLE_STAGES,
+    CompositeCandidateSpec,
+    CompositeCandidateValidation,
+    validate_composite_candidate,
+)
 from .crisis_response_shadow_plugin import (
     SCHEMA_VERSION as CRISIS_RESPONSE_SHADOW_SCHEMA_VERSION,
     SHADOW_PROFILE as CRISIS_RESPONSE_SHADOW_PROFILE,
@@ -40,6 +48,7 @@ from .taco_rebound_shadow_plugin import (
 __all__ = [
     "BENCHMARK_DRAWDOWN_GUARD_PROFILE",
     "BENCHMARK_DRAWDOWN_GUARD_SCHEMA_VERSION",
+    "COMPOSITE_CANDIDATE_SCHEMA_VERSION",
     "CRISIS_RESPONSE_SHADOW_PROFILE",
     "CRISIS_RESPONSE_SHADOW_SCHEMA_VERSION",
     "MACRO_RISK_GOVERNOR_PROFILE",
@@ -48,8 +57,12 @@ __all__ = [
     "MARKET_REGIME_CONTROL_SCHEMA_VERSION",
     "PANIC_REVERSAL_PROFILE",
     "PANIC_REVERSAL_SHADOW_SCHEMA_VERSION",
+    "SUPPORTED_ASSET_CLASSES",
     "TACO_REBOUND_PROFILE",
     "TACO_REBOUND_SHADOW_SCHEMA_VERSION",
+    "VALID_LIFECYCLE_STAGES",
+    "CompositeCandidateSpec",
+    "CompositeCandidateValidation",
     "build_benchmark_drawdown_guard_signal",
     "build_crisis_response_shadow_signal",
     "build_macro_risk_governor_signal",
@@ -57,6 +70,7 @@ __all__ = [
     "build_panic_reversal_shadow_signal",
     "build_taco_rebound_shadow_signal",
     "run_configured_plugins",
+    "validate_composite_candidate",
     "write_crisis_response_shadow_outputs",
     "write_macro_risk_governor_outputs",
     "write_market_regime_control_outputs",
